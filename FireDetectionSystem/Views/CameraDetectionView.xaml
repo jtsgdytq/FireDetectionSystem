@@ -1,0 +1,332 @@
+<UserControl
+    x:Class="FireDetectionSystem.Views.CameraDetectionView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="clr-namespace:FireDetectionSystem.Views"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    d:DesignHeight="450"
+    d:DesignWidth="800"
+    mc:Ignorable="d">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="280" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- 左侧：摄像头列表 -->
+        <Border
+            Margin="5"
+            Padding="12"
+            Background="#16191f"
+            BorderBrush="#2a2f3e"
+            BorderThickness="1"
+            CornerRadius="10">
+            <StackPanel>
+                <TextBlock
+                    FontSize="18"
+                    FontWeight="SemiBold"
+                    Foreground="White"
+                    Text="摄像头列表" />
+                <TextBlock
+                    Margin="0,6,0,8"
+                    Foreground="#B8C5D6">
+                    <Run Text="已连接: " />
+                    <Run Text="{Binding ConnectedCount, Mode=OneWay}" />
+                    <Run Text="  运行中: " />
+                    <Run Text="{Binding RunningCount, Mode=OneWay}" />
+                </TextBlock>
+
+                <StackPanel Orientation="Horizontal">
+                    <Button
+                        Width="120"
+                        Margin="0,0,8,0"
+                        Command="{Binding AddVideoSourceCommand}"
+                        Content="添加视频源" />
+                    <Button
+                        Width="70"
+                        Command="{Binding RemoveSelectedCommand}"
+                        Content="移除" />
+                </StackPanel>
+
+                <ListBox
+                    Margin="0,10,0,0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    ItemsSource="{Binding Cameras}"
+                    SelectedItem="{Binding SelectedCamera}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border
+                                Margin="0,0,0,8"
+                                Padding="8"
+                                Background="#1f2431"
+                                BorderBrush="#2a2f3e"
+                                BorderThickness="1"
+                                CornerRadius="8">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock
+                                        FontSize="14"
+                                        FontWeight="SemiBold"
+                                        Foreground="White"
+                                        Text="{Binding Name}" />
+                                    <TextBlock
+                                        Grid.Row="1"
+                                        Foreground="#B8C5D6"
+                                        Text="{Binding StatusText}" />
+                                    <TextBlock
+                                        Grid.Row="2"
+                                        FontSize="12"
+                                        Foreground="#B8C5D6"
+                                        Text="{Binding AlertMessage}" />
+                                </Grid>
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsAlert}" Value="True">
+                                                <Setter Property="BorderBrush" Value="#FF5C5C" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </StackPanel>
+        </Border>
+
+        <!-- 右侧：状态与检测结果 -->
+        <Grid Grid.Column="1" Margin="5,5,5,5">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="220" />
+            </Grid.RowDefinitions>
+
+            <!-- 顶部控制区 -->
+            <StackPanel Orientation="Horizontal">
+                <TextBlock
+                    Margin="0,0,6,0"
+                    VerticalAlignment="Center"
+                    Foreground="White"
+                    Text="置信度阈值" />
+                <Slider
+                    Width="160"
+                    IsSnapToTickEnabled="True"
+                    Maximum="1"
+                    Minimum="0"
+                    TickFrequency="0.1"
+                    Value="{Binding ConfidenceThreshold, Mode=TwoWay}" />
+                <TextBlock
+                    Margin="6,0,20,0"
+                    VerticalAlignment="Center"
+                    Foreground="White"
+                    Text="{Binding ConfidenceThreshold, StringFormat={}{0:P0}}" />
+
+                <TextBlock
+                    Margin="0,0,6,0"
+                    VerticalAlignment="Center"
+                    Foreground="White"
+                    Text="预警阈值" />
+                <Slider
+                    Width="160"
+                    IsSnapToTickEnabled="True"
+                    Maximum="1"
+                    Minimum="0"
+                    TickFrequency="0.1"
+                    Value="{Binding AlertThreshold, Mode=TwoWay}" />
+                <TextBlock
+                    Margin="6,0,20,0"
+                    VerticalAlignment="Center"
+                    Foreground="White"
+                    Text="{Binding AlertThreshold, StringFormat={}{0:P0}}" />
+
+                <Button
+                    Width="80"
+                    Margin="0,0,8,0"
+                    Command="{Binding StartSelectedCommand}"
+                    Content="启动" />
+                <Button
+                    Width="80"
+                    Command="{Binding ToggleSelectedPauseCommand}"
+                    Content="{Binding SelectedCamera.PauseButtonText}" />
+            </StackPanel>
+
+            <!-- 状态与预警 -->
+            <Grid Grid.Row="1" Margin="0,10,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="240" />
+                </Grid.ColumnDefinitions>
+                <Border
+                    Margin="0,0,10,0"
+                    Padding="10"
+                    Background="#16191f"
+                    BorderBrush="#2a2f3e"
+                    BorderThickness="1"
+                    CornerRadius="8">
+                    <Grid DataContext="{Binding SelectedCamera}">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            Foreground="White"
+                            Text="摄像头状态" />
+                        <TextBlock Grid.Row="1" Foreground="#B8C5D6">
+                            <Run Text="名称: " />
+                            <Run Text="{Binding Name}" />
+                            <Run Text="   状态: " />
+                            <Run Text="{Binding StatusText}" />
+                        </TextBlock>
+                        <TextBlock Grid.Row="2" Foreground="#B8C5D6">
+                            <Run Text="源: " />
+                            <Run Text="{Binding SourcePath}" />
+                        </TextBlock>
+                    </Grid>
+                </Border>
+                <Border
+                    Grid.Column="1"
+                    Padding="10"
+                    Background="#1f2431"
+                    BorderBrush="#2a2f3e"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    DataContext="{Binding SelectedCamera}">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsAlert}" Value="True">
+                                    <Setter Property="Background" Value="#3a1f1f" />
+                                    <Setter Property="BorderBrush" Value="#FF5C5C" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <StackPanel>
+                        <TextBlock
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            Foreground="White"
+                            Text="预警信息" />
+                        <TextBlock
+                            Margin="0,6,0,0"
+                            Foreground="#B8C5D6"
+                            Text="{Binding AlertMessage}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- 画面显示 -->
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition />
+                    <ColumnDefinition />
+                </Grid.ColumnDefinitions>
+                <Border
+                    Margin="0,0,10,0"
+                    Padding="8"
+                    Background="#16191f"
+                    BorderBrush="#2a2f3e"
+                    BorderThickness="1"
+                    CornerRadius="8">
+                    <Image Source="{Binding SelectedCamera.OriginalFrame}" Stretch="Uniform" />
+                </Border>
+                <Border
+                    Grid.Column="1"
+                    Padding="8"
+                    Background="#16191f"
+                    BorderBrush="#2a2f3e"
+                    BorderThickness="1"
+                    CornerRadius="8">
+                    <Image Source="{Binding SelectedCamera.DetectionFrame}" Stretch="Uniform" />
+                </Border>
+            </Grid>
+
+            <!-- 检测信息列表 -->
+            <Grid Grid.Row="3" Margin="0,10,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="220" />
+                </Grid.ColumnDefinitions>
+                <Border
+                    Margin="0,0,10,0"
+                    Padding="10"
+                    Background="#16191f"
+                    BorderBrush="#2a2f3e"
+                    BorderThickness="1"
+                    CornerRadius="8">
+                    <ListView
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Foreground="White"
+                        ItemsSource="{Binding SelectedCamera.DetectionInfos}">
+                        <ListView.Resources>
+                            <Style TargetType="GridViewColumnHeader">
+                                <Setter Property="Foreground" Value="White" />
+                                <Setter Property="Background" Value="#2a2f3e" />
+                                <Setter Property="Padding" Value="6,4" />
+                                <Setter Property="BorderBrush" Value="#2a2f3e" />
+                                <Setter Property="BorderThickness" Value="0,0,0,1" />
+                            </Style>
+                        </ListView.Resources>
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn
+                                    Width="140"
+                                    DisplayMemberBinding="{Binding Label}"
+                                    Header="目标" />
+                                <GridViewColumn
+                                    Width="100"
+                                    DisplayMemberBinding="{Binding Confidence, StringFormat={}{0:P1}}"
+                                    Header="置信度" />
+                                <GridViewColumn
+                                    Width="200"
+                                    DisplayMemberBinding="{Binding Box}"
+                                    Header="位置" />
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </Border>
+                <Border
+                    Grid.Column="1"
+                    Padding="10"
+                    Background="#16191f"
+                    BorderBrush="#2a2f3e"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    DataContext="{Binding SelectedCamera}">
+                    <StackPanel>
+                        <TextBlock
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            Foreground="White"
+                            Text="检测摘要" />
+                        <TextBlock Foreground="#B8C5D6">
+                            <Run Text="检测数量: " />
+                            <Run Text="{Binding DetectionCount}" />
+                        </TextBlock>
+                        <TextBlock Foreground="#B8C5D6">
+                            <Run Text="最高置信度: " />
+                            <Run Text="{Binding MaxConfidence, StringFormat={}{0:P1}}" />
+                        </TextBlock>
+                        <TextBlock Foreground="#B8C5D6">
+                            <Run Text="更新时间: " />
+                            <Run Text="{Binding LastUpdateTime}" />
+                        </TextBlock>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

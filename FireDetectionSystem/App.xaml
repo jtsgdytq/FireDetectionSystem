@@ -1,0 +1,28 @@
+﻿<prism:PrismApplication
+    x:Class="FireDetectionSystem.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:FireDetectionSystem"
+    xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+    xmlns:prism="http://prismlibrary.com/">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <materialDesign:BundledTheme
+                    BaseTheme="Light"
+                    PrimaryColor="DeepPurple"
+                    SecondaryColor="Lime" />
+                <ResourceDictionary Source="pack://application:,,,/MaterialDesignThemes.Wpf;component/Themes/MaterialDesign2.Defaults.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+
+            <Style x:Key="LoginStyle" TargetType="Window">
+                <Setter Property="WindowStyle" Value="None" />
+                <Setter Property="AllowsTransparency" Value="True" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="ResizeMode" Value="NoResize" />
+            </Style>
+        </ResourceDictionary>
+
+    </Application.Resources>
+</prism:PrismApplication>

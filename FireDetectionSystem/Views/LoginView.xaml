@@ -1,0 +1,250 @@
+﻿<UserControl
+    x:Class="FireDetectionSystem.Views.LoginView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="clr-namespace:FireDetectionSystem.Views"
+    xmlns:material="http://materialdesigninxaml.net/winfx/xaml/themes"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:prism="http://prismlibrary.com/"
+    xmlns:vm="clr-namespace:FireDetectionSystem.ViewModels"
+    Width="875"
+    Height="645"
+    prism:Dialog.WindowStyle="{StaticResource LoginStyle}"
+    FontFamily="Arial"
+    FontSize="20"
+    mc:Ignorable="d">
+
+    <Grid Margin="20">
+        <Grid.Effect>
+            <DropShadowEffect
+                BlurRadius="30"
+                Opacity="0.4"
+                ShadowDepth="1" />
+        </Grid.Effect>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="1.22*" />
+        </Grid.ColumnDefinitions>
+
+        <!--  Left Section  -->
+        <Grid>
+            <Border
+                Background="#FF6B35"
+                ClipToBounds="True"
+                CornerRadius="10 0 0 10">
+                <Border.Clip>
+                    <RectangleGeometry
+                        RadiusX="10"
+                        RadiusY="10"
+                        Rect="0,0,400,605" />
+                </Border.Clip>
+
+                <Grid>
+                    <!--  Titiles  -->
+                    <StackPanel Margin="0,120,0,0" VerticalAlignment="Top">
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            FontSize="46"
+                            FontWeight="Light"
+                            Foreground="#FFFFFF"
+                            Text="欢迎" />
+                        <TextBlock
+                            Margin="0,15,0,3"
+                            FontSize="16"
+                            FontWeight="Light"
+                            Foreground="White"
+                            Text="使用火灾检测"
+                            TextAlignment="Center" />
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            FontSize="16"
+                            FontWeight="Light"
+                            Foreground="#FFFFFF"
+                            Text="报警系统" />
+                    </StackPanel>
+
+                    <!--  Ellipses  -->
+                    <Ellipse
+                        Width="500"
+                        Height="500"
+                        Margin="50,0,0,-200"
+                        VerticalAlignment="Bottom"
+                        Fill="#F7931E"
+                        Opacity="0.6" />
+                    <Ellipse
+                        Width="300"
+                        Height="300"
+                        Margin="-450,0,0,30"
+                        VerticalAlignment="Bottom"
+                        Fill="#F7931E"
+                        Opacity="0.3" />
+                    <Ellipse
+                        Width="400"
+                        Height="400"
+                        Margin="-320,0,0,-120"
+                        VerticalAlignment="Bottom"
+                        Fill="#F7931E"
+                        Opacity="0.3" />
+                    <Ellipse
+                        Width="500"
+                        Height="500"
+                        Margin="50,0,0,-200"
+                        VerticalAlignment="Bottom"
+                        Fill="#F7931E"
+                        Opacity="0.6" />
+                    <Ellipse
+                        Width="250"
+                        Height="250"
+                        Margin="-380,0,0,-120"
+                        VerticalAlignment="Bottom"
+                        Fill="#F7931E"
+                        Opacity="0.6" />
+                    <Ellipse
+                        Width="400"
+                        Height="400"
+                        Margin="280,0,0,-70"
+                        VerticalAlignment="Bottom"
+                        Fill="#F7931E"
+                        Opacity="0.8" />
+
+                    <!--  Icon  -->
+                    <Border
+                        Width="110"
+                        Height="110"
+                        Margin="0,0,0,80"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Bottom"
+                        Background="#fdfdfd"
+                        CornerRadius="100">
+                        <Grid>
+                            <!--  Colored Ellipses  -->
+                            <Ellipse
+                                Width="100"
+                                Height="100"
+                                StrokeThickness="4">
+                                <Ellipse.Stroke>
+                                    <LinearGradientBrush>
+                                        <GradientStop Offset="0.15" Color="#e27c53" />
+                                        <GradientStop Offset="0.2" Color="#dca503" />
+                                        <GradientStop Offset="0.3" Color="#8bb356" />
+                                        <GradientStop Offset="0.4" Color="#3bb799" />
+                                        <GradientStop Offset="0.5" Color="#67cbee" />
+                                        <GradientStop Offset="0.6" Color="#3699bd" />
+                                        <GradientStop Offset="0.8" Color="#9264aa" />
+                                        <GradientStop Offset="0.9" Color="#6e94de" />
+                                    </LinearGradientBrush>
+                                </Ellipse.Stroke>
+                            </Ellipse>
+
+                            <!--  Colored Tick Icon  -->
+
+                            <material:PackIcon
+                                Width="70"
+                                Height="70"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Kind="Tick">
+                                <material:PackIcon.Foreground>
+                                    <LinearGradientBrush StartPoint="0,1">
+                                        <GradientStop Offset="0.1" Color="#e27c53" />
+                                        <GradientStop Offset="0.3" Color="#8bb356" />
+                                        <GradientStop Offset="0.5" Color="#67cbee" />
+                                        <GradientStop Offset="0.8" Color="#9264aa" />
+                                    </LinearGradientBrush>
+                                </material:PackIcon.Foreground>
+                            </material:PackIcon>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!--  Right Section  -->
+        <Grid Grid.Column="1">
+            <Border Background="White" CornerRadius="0 10 10 0" />
+            <Grid>
+                <!--  Close Icon  -->
+
+                <Button
+                    Margin="0,5,5,0"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top"
+                    Command="{Binding CloseCommand}"
+                    Style="{StaticResource MaterialDesignFlatButton}">
+                    <material:PackIcon
+                        Width="30"
+                        Height="30"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Top"
+                        Kind="Close"
+                        Opacity="0.3" />
+                </Button>
+
+                <!--  Inputs  -->
+                <StackPanel
+                    Margin="75,0"
+                    VerticalAlignment="Center"
+                    Cursor="Arrow">
+                    <TextBox
+                        Margin="0,0,0,1.5"
+                        material:HintAssist.FloatingOffset="0,-20"
+                        material:HintAssist.Hint="Username"
+                        BorderBrush="#c5c8cc"
+                        Style="{StaticResource MaterialDesignFloatingHintTextBox}"
+                        Text="Qingfeng" />
+
+                    <TextBox
+                        Margin="0,27"
+                        material:HintAssist.FloatingOffset="0,-20"
+                        material:HintAssist.Hint="Email"
+                        BorderBrush="#c5c8cc"
+                        Style="{StaticResource MaterialDesignFloatingHintTextBox}"
+                        Text="Qingfeng@gmail.com" />
+                    <PasswordBox
+                        material:HintAssist.FloatingOffset="0,-18"
+                        material:HintAssist.Hint="Password"
+                        BorderBrush="#c5c8cc"
+                        Password="123456"
+                        Style="{StaticResource MaterialDesignFloatingHintPasswordBox}" />
+                    <PasswordBox
+                        Margin="0,27,0,0"
+                        material:HintAssist.FloatingOffset="0,-18"
+                        material:HintAssist.Hint="Repeat Password"
+                        BorderBrush="#c5c8cc"
+                        BorderThickness="0,0,0,1.5"
+                        Password="123456"
+                        Style="{StaticResource MaterialDesignFloatingHintPasswordBox}" />
+
+                    <CheckBox Margin="0,40,0,20" FontSize="13">
+                        <TextBlock>
+                            <Run Foreground="#b6b6b6">是否记住上次登录</Run>
+
+                        </TextBlock>
+                    </CheckBox>
+
+                    <StackPanel Orientation="Horizontal">
+                        <Button
+                            Width="120"
+                            Height="45"
+                            material:ButtonAssist.CornerRadius="22"
+                            Background="#dca503"
+                            Command="{Binding LoginCommand}"
+                            Content="Login"
+                            FontSize="18"
+                            Foreground="White" />
+                        <Button
+                            Width="140"
+                            Height="45"
+                            Foreground="#F7931E"
+                            Margin="5,0,0,0"
+                            material:ButtonAssist.CornerRadius="22"
+                            Content="or Sign Up"
+                            FontSize="18"
+                            Style="{StaticResource MaterialDesignFlatButton}" />
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>
