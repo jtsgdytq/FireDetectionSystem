@@ -16,6 +16,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using FireDetectionSystem.Core;
 
 
 namespace FireDetectionSystem.Views
@@ -37,8 +38,6 @@ namespace FireDetectionSystem.Views
         private void MainView_Loaded(object sender, RoutedEventArgs e)
         {
             _regionManager.RequestNavigate("ContentRegion", "ImageDetection");
-
-            FireDetectionModule.Initialize("D:\\下载\\ultralytics-main\\runs\\detect\\train4\\weights\\best.onnx");
         }
 
        

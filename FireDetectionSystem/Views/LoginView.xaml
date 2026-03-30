@@ -15,6 +15,10 @@
     FontSize="20"
     mc:Ignorable="d">
 
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+    </UserControl.Resources>
+
     <Grid Margin="20">
         <Grid.Effect>
             <DropShadowEffect
@@ -187,62 +191,58 @@
                     VerticalAlignment="Center"
                     Cursor="Arrow">
                     <TextBox
-                        Margin="0,0,0,1.5"
+                        Margin="0,0,0,30"
                         material:HintAssist.FloatingOffset="0,-20"
-                        material:HintAssist.Hint="Username"
+                        material:HintAssist.Hint="用户名"
                         BorderBrush="#c5c8cc"
                         Style="{StaticResource MaterialDesignFloatingHintTextBox}"
-                        Text="Qingfeng" />
+                        Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" />
 
-                    <TextBox
-                        Margin="0,27"
-                        material:HintAssist.FloatingOffset="0,-20"
-                        material:HintAssist.Hint="Email"
-                        BorderBrush="#c5c8cc"
-                        Style="{StaticResource MaterialDesignFloatingHintTextBox}"
-                        Text="Qingfeng@gmail.com" />
                     <PasswordBox
+                        x:Name="PasswordBox"
+                        Margin="0,0,0,30"
                         material:HintAssist.FloatingOffset="0,-18"
-                        material:HintAssist.Hint="Password"
+                        material:HintAssist.Hint="密码"
                         BorderBrush="#c5c8cc"
-                        Password="123456"
-                        Style="{StaticResource MaterialDesignFloatingHintPasswordBox}" />
-                    <PasswordBox
-                        Margin="0,27,0,0"
-                        material:HintAssist.FloatingOffset="0,-18"
-                        material:HintAssist.Hint="Repeat Password"
-                        BorderBrush="#c5c8cc"
-                        BorderThickness="0,0,0,1.5"
-                        Password="123456"
-                        Style="{StaticResource MaterialDesignFloatingHintPasswordBox}" />
+                        Style="{StaticResource MaterialDesignFloatingHintPasswordBox}"
+                        material:PasswordBoxAssist.Password="{Binding Password, UpdateSourceTrigger=PropertyChanged}" />
 
-                    <CheckBox Margin="0,40,0,20" FontSize="13">
-                        <TextBlock>
-                            <Run Foreground="#b6b6b6">是否记住上次登录</Run>
+                    <!--  错误提示  -->
+                    <Border
+                        Margin="0,0,0,20"
+                        Padding="10"
+                        Background="#FFEBEE"
+                        CornerRadius="5"
+                        Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock
+                            FontSize="14"
+                            Foreground="#C62828"
+                            Text="{Binding ErrorMessage}"
+                            TextWrapping="Wrap" />
+                    </Border>
 
-                        </TextBlock>
-                    </CheckBox>
+                    <Button
+                        Width="200"
+                        Height="45"
+                        Margin="0,20,0,0"
+                        material:ButtonAssist.CornerRadius="22"
+                        Background="#dca503"
+                        Command="{Binding LoginCommand}"
+                        Content="登录"
+                        FontSize="18"
+                        Foreground="White"
+                        IsEnabled="{Binding LoginCommand.CanExecute}" />
 
-                    <StackPanel Orientation="Horizontal">
-                        <Button
-                            Width="120"
-                            Height="45"
-                            material:ButtonAssist.CornerRadius="22"
-                            Background="#dca503"
-                            Command="{Binding LoginCommand}"
-                            Content="Login"
-                            FontSize="18"
-                            Foreground="White" />
-                        <Button
-                            Width="140"
-                            Height="45"
-                            Foreground="#F7931E"
-                            Margin="5,0,0,0"
-                            material:ButtonAssist.CornerRadius="22"
-                            Content="or Sign Up"
-                            FontSize="18"
-                            Style="{StaticResource MaterialDesignFlatButton}" />
-                    </StackPanel>
+                    <TextBlock
+                        Margin="0,20,0,0"
+                        FontSize="14"
+                        Foreground="#b6b6b6"
+                        TextAlignment="Center"
+                        TextWrapping="Wrap">
+                        <Run>默认账号: admin</Run>
+                        <LineBreak />
+                        <Run>默认密码: admin123</Run>
+                    </TextBlock>
                 </StackPanel>
             </Grid>
         </Grid>
