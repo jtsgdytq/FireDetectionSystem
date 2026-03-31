@@ -35,9 +35,14 @@ namespace FireDetectionSystem.Views
             this.Loaded += MainView_Loaded;
         }
 
+        /// <summary>
+        /// 初始化主页面模块，初始化导航到摄像头检测模块
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void MainView_Loaded(object sender, RoutedEventArgs e)
         {
-            _regionManager.RequestNavigate("ContentRegion", "ImageDetection");
+            _regionManager.RequestNavigate("ContentRegion", "CameraDetection");
         }
 
        

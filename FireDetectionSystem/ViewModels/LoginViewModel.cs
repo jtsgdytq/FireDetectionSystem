@@ -18,8 +18,9 @@ namespace FireDetectionSystem.ViewModels
         /// <summary>
         /// 当前登录成功的用户
         /// 登录成功后保存用户信息，供其他模块使用
+        /// 退出登录时会被清除为 null
         /// </summary>
-        public static User? CurrentUser { get; private set; }
+        public static User? CurrentUser { get; set; }
 
         /// <summary>
         /// 对话框标题

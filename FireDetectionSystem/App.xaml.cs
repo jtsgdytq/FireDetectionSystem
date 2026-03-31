@@ -56,6 +56,8 @@ namespace FireDetectionSystem
 
             // 注册对话框视图
             containerRegistry.RegisterDialog<LoginView, LoginViewModel>();
+            containerRegistry.RegisterDialog<Views.UserEditDialogView, ViewModels.UserEditDialogViewModel>("UserEditDialog");
+            containerRegistry.RegisterDialog<Views.PasswordResetDialogView, ViewModels.PasswordResetDialogViewModel>("PasswordResetDialog");
 
             // 注册导航视图
             containerRegistry.RegisterForNavigation<Views.ImageDetectionView, ViewModels.ImageDetectionViewModel>("ImageDetection");

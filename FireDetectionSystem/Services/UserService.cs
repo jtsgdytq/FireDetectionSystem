@@ -262,5 +262,268 @@ namespace FireDetectionSystem.Services
                 return false;
             }
         }
+
+        /// <summary>
+        /// 获取所有用户列表
+        /// </summary>
+        /// <returns>用户列表</returns>
+        public async Task<List<User>> GetAllUsersAsync()
+        {
+            try
+            {
+                using var dbContext = CreateDbContext();
+                var users = await dbContext.Users
+                    .OrderBy(u => u.Username)
+                    .ToListAsync();
+
+                _logger.Info($"用户管理 - 加载用户列表，共 {users.Count} 个用户");
+                return users;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"用户管理 - 加载用户列表失败: {ex.Message}", ex);
+                return new List<User>();
+            }
+        }
+
+        /// <summary>
+        /// 更新用户信息
+        /// </summary>
+        /// <param name="user">用户对象</param>
+        /// <param name="operatorUsername">操作人用户名</param>
+        /// <returns>更新成功返回 true，失败返回 false</returns>
+        public async Task<bool> UpdateUserAsync(User user, string operatorUsername)
+        {
+            try
+            {
+                using var dbContext = CreateDbContext();
+
+                // 检查用户名是否与其他用户冲突
+                var existingUser = await dbContext.Users
+                    .FirstOrDefaultAsync(u => u.Username == user.Username && u.Id != user.Id);
+
+                if (existingUser != null)
+                {
+                    _logger.Warning($"用户管理 - 更新用户失败: 用户名已存在 - {user.Username}, 操作人={operatorUsername}");
+                    return false;
+                }
+
+                dbContext.Users.Update(user);
+                await dbContext.SaveChangesAsync();
+
+                _logger.Info($"用户管理 - 更新用户信息成功: username={user.Username}, role={user.Role}, 操作人={operatorUsername}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"用户管理 - 更新用户失败: {ex.Message}, 操作人={operatorUsername}", ex);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 删除用户（物理删除）
+        /// 不允许删除管理员账户
+        /// </summary>
+        /// <param name="userId">用户ID</param>
+        /// <param name="operatorUsername">操作人用户名</param>
+        /// <returns>删除成功返回 true，失败返回 false</returns>
+        public async Task<bool> DeleteUserAsync(int userId, string operatorUsername)
+        {
+            try
+            {
+                using var dbContext = CreateDbContext();
+                var user = await dbContext.Users.FindAsync(userId);
+
+                if (user == null)
+                {
+                    _logger.Warning($"用户管理 - 删除用户失败: 用户不存在 - ID={userId}, 操作人={operatorUsername}");
+                    return false;
+                }
+
+                // 不允许删除管理员账户
+                if (user.Role == "Admin")
+                {
+                    _logger.Warning($"用户管理 - 删除用户失败: 不能删除管理员账户 - {user.Username}, 操作人={operatorUsername}");
+                    return false;
+                }
+
+                dbContext.Users.Remove(user);
+                await dbContext.SaveChangesAsync();
+
+                _logger.Warning($"用户管理 - 删除用户: username={user.Username}, 操作人={operatorUsername}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"用户管理 - 删除用户失败: {ex.Message}, 操作人={operatorUsername}", ex);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 禁用用户账户
+        /// </summary>
+        /// <param name="userId">用户ID</param>
+        /// <param name="operatorUsername">操作人用户名</param>
+        /// <returns>禁用成功返回 true，失败返回 false</returns>
+        public async Task<bool> DisableUserAsync(int userId, string operatorUsername)
+        {
+            try
+            {
+                using var dbContext = CreateDbContext();
+                var user = await dbContext.Users.FindAsync(userId);
+
+                if (user == null)
+                {
+                    _logger.Warning($"用户管理 - 禁用用户失败: 用户不存在 - ID={userId}, 操作人={operatorUsername}");
+                    return false;
+                }
+
+                user.IsActive = false;
+                await dbContext.SaveChangesAsync();
+
+                _logger.Warning($"用户管理 - 禁用用户账户: username={user.Username}, 操作人={operatorUsername}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"用户管理 - 禁用用户失败: {ex.Message}, 操作人={operatorUsername}", ex);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 启用用户账户
+        /// </summary>
+        /// <param name="userId">用户ID</param>
+        /// <param name="operatorUsername">操作人用户名</param>
+        /// <returns>启用成功返回 true，失败返回 false</returns>
+        public async Task<bool> EnableUserAsync(int userId, string operatorUsername)
+        {
+            try
+            {
+                using var dbContext = CreateDbContext();
+                var user = await dbContext.Users.FindAsync(userId);
+
+                if (user == null)
+                {
+                    _logger.Warning($"用户管理 - 启用用户失败: 用户不存在 - ID={userId}, 操作人={operatorUsername}");
+                    return false;
+                }
+
+                user.IsActive = true;
+                await dbContext.SaveChangesAsync();
+
+                _logger.Info($"用户管理 - 启用用户账户: username={user.Username}, 操作人={operatorUsername}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"用户管理 - 启用用户失败: {ex.Message}, 操作人={operatorUsername}", ex);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 管理员重置用户密码
+        /// </summary>
+        /// <param name="userId">用户ID</param>
+        /// <param name="newPassword">新密码</param>
+        /// <param name="operatorUsername">操作人用户名</param>
+        /// <returns>重置成功返回 true，失败返回 false</returns>
+        public async Task<bool> ResetPasswordAsync(int userId, string newPassword, string operatorUsername)
+        {
+            try
+            {
+                using var dbContext = CreateDbContext();
+                var user = await dbContext.Users.FindAsync(userId);
+
+                if (user == null)
+                {
+                    _logger.Warning($"用户管理 - 重置密码失败: 用户不存在 - ID={userId}, 操作人={operatorUsername}");
+                    return false;
+                }
+
+                user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
+                await dbContext.SaveChangesAsync();
+
+                _logger.Warning($"用户管理 - 重置用户密码: username={user.Username}, 操作人={operatorUsername}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"用户管理 - 重置密码失败: {ex.Message}, 操作人={operatorUsername}", ex);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 搜索用户（按用户名、姓名、邮箱模糊匹配）
+        /// </summary>
+        /// <param name="keyword">搜索关键字</param>
+        /// <returns>匹配的用户列表</returns>
+        public async Task<List<User>> SearchUsersAsync(string keyword)
+        {
+            try
+            {
+                using var dbContext = CreateDbContext();
+                var lower = keyword.ToLower();
+                return await dbContext.Users
+                    .Where(u => u.Username.ToLower().Contains(lower)
+                             || (u.FullName != null && u.FullName.ToLower().Contains(lower))
+                             || (u.Email != null && u.Email.ToLower().Contains(lower)))
+                    .OrderBy(u => u.Username)
+                    .ToListAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"用户管理 - 搜索用户失败: {ex.Message}", ex);
+                return new List<User>();
+            }
+        }
+
+        /// <summary>
+        /// 按角色获取用户列表
+        /// </summary>
+        /// <param name="role">角色名称</param>
+        /// <returns>指定角色的用户列表</returns>
+        public async Task<List<User>> GetUsersByRoleAsync(string role)
+        {
+            try
+            {
+                using var dbContext = CreateDbContext();
+                return await dbContext.Users
+                    .Where(u => u.Role == role)
+                    .OrderBy(u => u.Username)
+                    .ToListAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"用户管理 - 按角色查询用户失败: {ex.Message}", ex);
+                return new List<User>();
+            }
+        }
+
+        /// <summary>
+        /// 检查用户名是否已存在
+        /// </summary>
+        /// <param name="username">用户名</param>
+        /// <param name="excludeUserId">排除的用户ID（编辑时使用）</param>
+        /// <returns>存在返回 true，不存在返回 false</returns>
+        public async Task<bool> IsUsernameExistsAsync(string username, int? excludeUserId = null)
+        {
+            try
+            {
+                using var dbContext = CreateDbContext();
+                return await dbContext.Users
+                    .AnyAsync(u => u.Username == username && (excludeUserId == null || u.Id != excludeUserId));
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"用户管理 - 检查用户名失败: {ex.Message}", ex);
+                return false;
+            }
+        }
     }
 }
