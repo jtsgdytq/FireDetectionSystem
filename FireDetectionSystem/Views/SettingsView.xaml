@@ -1,18 +1,430 @@
-﻿<UserControl
+<UserControl
     x:Class="FireDetectionSystem.Views.SettingsView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:local="clr-namespace:FireDetectionSystem.Views"
-    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    d:DesignHeight="450"
-    d:DesignWidth="800"
-    mc:Ignorable="d">
-    <Grid>
-        <TextBlock
-            HorizontalAlignment="Center"
-            VerticalAlignment="Center"
-            FontSize="100"
-            Text="Settings" />
-    </Grid>
+    xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+    xmlns:prism="http://prismlibrary.com/"
+    prism:ViewModelLocator.AutoWireViewModel="True"
+    Background="{DynamicResource MaterialDesignPaper}">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="16" MaxWidth="900">
+
+            <!-- 标题 -->
+            <TextBlock
+                Text="系统设置"
+                Style="{StaticResource MaterialDesignHeadline5TextBlock}"
+                Margin="0,0,0,16"/>
+
+            <!-- ===== Card 1：模型设置 ===== -->
+            <materialDesign:Card Margin="0,0,0,12" Padding="20">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                        <materialDesign:PackIcon Kind="Robot" VerticalAlignment="Center" Margin="0,0,8,0"
+                                                 Foreground="{DynamicResource PrimaryHueMidBrush}"/>
+                        <TextBlock Text="模型设置"
+                                   Style="{StaticResource MaterialDesignSubtitle1TextBlock}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- 模型路径 -->
+                    <TextBlock Text="ONNX 模型文件" Margin="0,0,0,4"
+                               Style="{StaticResource MaterialDesignCaptionTextBlock}"
+                               Foreground="{DynamicResource MaterialDesignBodyLight}"/>
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox
+                            Grid.Column="0"
+                            Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                            materialDesign:HintAssist.Hint="模型文件路径 (.onnx)"
+                            Text="{Binding ModelPath, UpdateSourceTrigger=PropertyChanged}"
+                            IsReadOnly="True"
+                            Margin="0,0,8,0"/>
+                        <Button
+                            Grid.Column="1"
+                            Style="{StaticResource MaterialDesignOutlinedButton}"
+                            Command="{Binding BrowseModelFileCommand}"
+                            VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="FolderOpen" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="浏览"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <!-- 置信度阈值 -->
+                    <TextBlock Text="置信度阈值" Margin="0,0,0,4"
+                               Style="{StaticResource MaterialDesignCaptionTextBlock}"
+                               Foreground="{DynamicResource MaterialDesignBodyLight}"/>
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="64"/>
+                        </Grid.ColumnDefinitions>
+                        <Slider
+                            Grid.Column="0"
+                            Minimum="0.1" Maximum="0.9"
+                            TickFrequency="0.05"
+                            IsSnapToTickEnabled="True"
+                            Value="{Binding ConfidenceThreshold, Mode=TwoWay}"
+                            VerticalAlignment="Center"
+                            Margin="0,0,12,0"
+                            Style="{StaticResource MaterialDesignSlider}"/>
+                        <Border Grid.Column="1"
+                                Background="{DynamicResource PrimaryHueLightBrush}"
+                                CornerRadius="4" Padding="6,4">
+                            <TextBlock
+                                Text="{Binding ConfidenceDisplay}"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                FontWeight="Bold"
+                                Foreground="{DynamicResource PrimaryHueLightForegroundBrush}"/>
+                        </Border>
+                    </Grid>
+
+                    <!-- 报警触发阈值 -->
+                    <TextBlock Text="报警触发阈值（置信度超过此值时触发报警）" Margin="0,0,0,4"
+                               Style="{StaticResource MaterialDesignCaptionTextBlock}"
+                               Foreground="{DynamicResource MaterialDesignBodyLight}"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="64"/>
+                        </Grid.ColumnDefinitions>
+                        <Slider
+                            Grid.Column="0"
+                            Minimum="0.1" Maximum="0.9"
+                            TickFrequency="0.05"
+                            IsSnapToTickEnabled="True"
+                            Value="{Binding AlertThreshold, Mode=TwoWay}"
+                            VerticalAlignment="Center"
+                            Margin="0,0,12,0"
+                            Style="{StaticResource MaterialDesignSlider}"/>
+                        <Border Grid.Column="1"
+                                Background="{DynamicResource SecondaryHueMidBrush}"
+                                CornerRadius="4" Padding="6,4">
+                            <TextBlock
+                                Text="{Binding AlertThresholdDisplay}"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                FontWeight="Bold"
+                                Foreground="{DynamicResource SecondaryHueMidForegroundBrush}"/>
+                        </Border>
+                    </Grid>
+                </StackPanel>
+            </materialDesign:Card>
+
+            <!-- ===== Card 2：报警开关 ===== -->
+            <materialDesign:Card Margin="0,0,0,12" Padding="20">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                        <materialDesign:PackIcon Kind="Bell" VerticalAlignment="Center" Margin="0,0,8,0"
+                                                 Foreground="{DynamicResource PrimaryHueMidBrush}"/>
+                        <TextBlock Text="报警通知"
+                                   Style="{StaticResource MaterialDesignSubtitle1TextBlock}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- 声音报警 -->
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <ToggleButton
+                            Grid.Column="0"
+                            Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                            IsChecked="{Binding EnableSound}"
+                            VerticalAlignment="Center"/>
+                        <materialDesign:PackIcon Grid.Column="1" Kind="VolumeHigh"
+                                                 VerticalAlignment="Center" Margin="12,0,8,0"
+                                                 Foreground="{DynamicResource MaterialDesignBodyLight}"/>
+                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                            <TextBlock Text="声音报警"/>
+                            <TextBlock Text="检测到火灾时播放声音提示"
+                                       Style="{StaticResource MaterialDesignCaptionTextBlock}"
+                                       Foreground="{DynamicResource MaterialDesignBodyLight}"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- 桌面通知 -->
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <ToggleButton
+                            Grid.Column="0"
+                            Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                            IsChecked="{Binding EnableDesktopNotification}"
+                            VerticalAlignment="Center"/>
+                        <materialDesign:PackIcon Grid.Column="1" Kind="Monitor"
+                                                 VerticalAlignment="Center" Margin="12,0,8,0"
+                                                 Foreground="{DynamicResource MaterialDesignBodyLight}"/>
+                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                            <TextBlock Text="桌面通知"/>
+                            <TextBlock Text="检测到火灾时弹出桌面消息提示"
+                                       Style="{StaticResource MaterialDesignCaptionTextBlock}"
+                                       Foreground="{DynamicResource MaterialDesignBodyLight}"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- 邮件通知 -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <ToggleButton
+                            Grid.Column="0"
+                            Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                            IsChecked="{Binding EnableEmail}"
+                            VerticalAlignment="Center"/>
+                        <materialDesign:PackIcon Grid.Column="1" Kind="Email"
+                                                 VerticalAlignment="Center" Margin="12,0,8,0"
+                                                 Foreground="{DynamicResource MaterialDesignBodyLight}"/>
+                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                            <TextBlock Text="邮件通知"/>
+                            <TextBlock Text="检测到火灾时向指定收件人发送邮件报警"
+                                       Style="{StaticResource MaterialDesignCaptionTextBlock}"
+                                       Foreground="{DynamicResource MaterialDesignBodyLight}"/>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </materialDesign:Card>
+
+            <!-- ===== Card 3：邮件配置（仅 EnableEmail=true 时显示） ===== -->
+            <materialDesign:Card
+                Margin="0,0,0,12" Padding="20"
+                Visibility="{Binding IsEmailSectionVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                        <materialDesign:PackIcon Kind="EmailOutline" VerticalAlignment="Center" Margin="0,0,8,0"
+                                                 Foreground="{DynamicResource PrimaryHueMidBrush}"/>
+                        <TextBlock Text="邮件配置"
+                                   Style="{StaticResource MaterialDesignSubtitle1TextBlock}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- SMTP 配置（两列网格） -->
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="16"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- SMTP 服务器 -->
+                        <TextBox
+                            Grid.Row="0" Grid.Column="0"
+                            Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                            materialDesign:HintAssist.Hint="SMTP 服务器"
+                            Text="{Binding SmtpServer, UpdateSourceTrigger=PropertyChanged}"
+                            Margin="0,0,0,12"/>
+
+                        <!-- 端口 -->
+                        <TextBox
+                            Grid.Row="0" Grid.Column="2"
+                            Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                            materialDesign:HintAssist.Hint="端口"
+                            Text="{Binding SmtpPort, UpdateSourceTrigger=PropertyChanged,
+                                           ValidatesOnExceptions=True, NotifyOnValidationError=True}"
+                            Margin="0,0,0,12"/>
+
+                        <!-- 账号 -->
+                        <TextBox
+                            Grid.Row="1" Grid.Column="0"
+                            Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                            materialDesign:HintAssist.Hint="发件账号"
+                            Text="{Binding SmtpUsername, UpdateSourceTrigger=PropertyChanged}"
+                            Margin="0,0,0,12"/>
+
+                        <!-- 密码 -->
+                        <PasswordBox
+                            Grid.Row="1" Grid.Column="2"
+                            Style="{StaticResource MaterialDesignOutlinedPasswordBox}"
+                            materialDesign:HintAssist.Hint="发件密码"
+                            materialDesign:PasswordBoxAssist.Password="{Binding SmtpPassword, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                            Margin="0,0,0,12"/>
+
+                        <!-- 发件地址 -->
+                        <TextBox
+                            Grid.Row="2" Grid.Column="0"
+                            Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                            materialDesign:HintAssist.Hint="发件人地址"
+                            Text="{Binding FromAddress, UpdateSourceTrigger=PropertyChanged}"
+                            Margin="0,0,0,12"/>
+
+                        <!-- 发件人名称 -->
+                        <TextBox
+                            Grid.Row="2" Grid.Column="2"
+                            Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                            materialDesign:HintAssist.Hint="发件人名称"
+                            Text="{Binding FromName, UpdateSourceTrigger=PropertyChanged}"
+                            Margin="0,0,0,12"/>
+
+                        <!-- SSL 开关 -->
+                        <StackPanel Grid.Row="3" Grid.Column="0" Orientation="Horizontal">
+                            <ToggleButton
+                                Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                IsChecked="{Binding SmtpUseSsl}"
+                                VerticalAlignment="Center"/>
+                            <TextBlock Text="启用 SSL/TLS 加密"
+                                       VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- 收件人列表 -->
+                    <Separator Margin="0,0,0,12"/>
+                    <Grid Margin="0,0,0,8">
+                        <TextBlock Text="邮件收件人"
+                                   Style="{StaticResource MaterialDesignSubtitle2TextBlock}"
+                                   VerticalAlignment="Center"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button
+                                Style="{StaticResource MaterialDesignFlatButton}"
+                                Command="{Binding SelectAllRecipientsCommand}"
+                                Margin="0,0,4,0" Padding="8,4">
+                                <TextBlock Text="全选"/>
+                            </Button>
+                            <Button
+                                Style="{StaticResource MaterialDesignFlatButton}"
+                                Command="{Binding UnselectAllRecipientsCommand}"
+                                Padding="8,4">
+                                <TextBlock Text="取消全选"/>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock
+                        Text="勾选需要接收火灾报警邮件的用户（无邮箱的用户不可选）"
+                        Style="{StaticResource MaterialDesignCaptionTextBlock}"
+                        Foreground="{DynamicResource MaterialDesignBodyLight}"
+                        Margin="0,0,0,8"/>
+
+                    <Border BorderBrush="{DynamicResource MaterialDesignDivider}" BorderThickness="1" CornerRadius="4">
+                        <ListView
+                            ItemsSource="{Binding EmailRecipients}"
+                            MaxHeight="220"
+                            ScrollViewer.VerticalScrollBarVisibility="Auto"
+                            SelectionMode="Single"
+                            Background="Transparent">
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem" BasedOn="{StaticResource MaterialDesignListBoxItem}">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                    <Setter Property="Padding" Value="12,8"/>
+                                </Style>
+                            </ListView.ItemContainerStyle>
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- 勾选框 -->
+                                        <CheckBox
+                                            Grid.Column="0"
+                                            IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                            IsEnabled="{Binding CanSelect}"
+                                            VerticalAlignment="Center"
+                                            Margin="0,0,12,0"/>
+
+                                        <!-- 用户信息 -->
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding DisplayName}" FontWeight="Medium"/>
+                                            <TextBlock
+                                                Style="{StaticResource MaterialDesignCaptionTextBlock}"
+                                                Foreground="{DynamicResource MaterialDesignBodyLight}">
+                                                <Run Text="{Binding Email, TargetNullValue='（无邮箱，不可选）'}"/>
+                                            </TextBlock>
+                                        </StackPanel>
+
+                                        <!-- 角色标签占位（右侧） -->
+                                        <TextBlock
+                                            Grid.Column="2"
+                                            VerticalAlignment="Center"
+                                            Foreground="{DynamicResource MaterialDesignBodyLight}"
+                                            Style="{StaticResource MaterialDesignCaptionTextBlock}"
+                                            Text="无邮箱"
+                                            Visibility="{Binding HasNoEmail, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </Border>
+                </StackPanel>
+            </materialDesign:Card>
+
+            <!-- ===== 保存按钮行 ===== -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,16">
+                <!-- 保存状态提示 -->
+                <StackPanel
+                    Orientation="Horizontal"
+                    VerticalAlignment="Center"
+                    Margin="0,0,16,0"
+                    Visibility="{Binding ShowSaveStatus, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <materialDesign:PackIcon
+                        VerticalAlignment="Center"
+                        Margin="0,0,4,0">
+                        <materialDesign:PackIcon.Style>
+                            <Style TargetType="materialDesign:PackIcon">
+                                <!-- 默认显示失败图标（初始 SaveSuccess=false） -->
+                                <Setter Property="Kind" Value="AlertCircle"/>
+                                <Setter Property="Foreground" Value="#F44336"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SaveSuccess}" Value="True">
+                                        <Setter Property="Kind" Value="CheckCircle"/>
+                                        <Setter Property="Foreground" Value="#4CAF50"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </materialDesign:PackIcon.Style>
+                    </materialDesign:PackIcon>
+                    <TextBlock
+                        Text="{Binding SaveStatusMessage}"
+                        VerticalAlignment="Center">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SaveSuccess}" Value="True">
+                                        <Setter Property="Foreground" Value="#4CAF50"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding SaveSuccess}" Value="False">
+                                        <Setter Property="Foreground" Value="#F44336"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </StackPanel>
+
+                <!-- 保存按钮 -->
+                <Button
+                    Style="{StaticResource MaterialDesignRaisedButton}"
+                    Command="{Binding SaveSettingsCommand}"
+                    IsEnabled="{Binding CanSave}">
+                    <StackPanel Orientation="Horizontal">
+                        <materialDesign:PackIcon Kind="ContentSave" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBlock Text="保存设置"/>
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+
+        </StackPanel>
+    </ScrollViewer>
 </UserControl>

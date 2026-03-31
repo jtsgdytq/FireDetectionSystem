@@ -1,5 +1,9 @@
 using Microsoft.Extensions.Configuration;
+using System;
 using System.IO;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace FireDetectionSystem.Services
 {
@@ -10,14 +14,15 @@ namespace FireDetectionSystem.Services
     public class ConfigurationService : IConfigurationService
     {
         private readonly IConfiguration _configuration;
+        private readonly object _fileLock = new object();
 
-        /// <summary>
-        /// 构造函数
-        /// 加载 appsettings.json 配置文件
-        /// </summary>
+        private static readonly JsonSerializerOptions _jsonWriteOptions =
+            new JsonSerializerOptions { WriteIndented = true };
+
+        private static readonly Encoding _utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
         public ConfigurationService()
         {
-            // 构建配置对象，从 appsettings.json 读取配置
             var builder = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
                 .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
@@ -25,86 +30,116 @@ namespace FireDetectionSystem.Services
             _configuration = builder.Build();
         }
 
-        /// <summary>
-        /// 获取配置对象
-        /// </summary>
         public IConfiguration Configuration => _configuration;
 
-        /// <summary>
-        /// 获取模型文件路径
-        /// </summary>
         public string ModelPath => _configuration["ModelSettings:ModelPath"] ?? "models/best.onnx";
 
-        /// <summary>
-        /// 获取置信度阈值
-        /// </summary>
         public float ConfidenceThreshold =>
-            float.TryParse(_configuration["ModelSettings:ConfidenceThreshold"], out var value) ? value : 0.5f;
+            float.TryParse(_configuration["ModelSettings:ConfidenceThreshold"], out var v) ? v : 0.5f;
 
-        /// <summary>
-        /// 获取报警阈值
-        /// </summary>
         public float AlertThreshold =>
-            float.TryParse(_configuration["AlarmSettings:AlertThreshold"], out var value) ? value : 0.7f;
+            float.TryParse(_configuration["AlarmSettings:AlertThreshold"], out var v) ? v : 0.7f;
 
-        /// <summary>
-        /// 是否启用声音报警
-        /// </summary>
         public bool EnableSoundAlarm =>
-            bool.TryParse(_configuration["AlarmSettings:EnableSound"], out var value) && value;
+            bool.TryParse(_configuration["AlarmSettings:EnableSound"], out var v) && v;
 
-        /// <summary>
-        /// 是否启用桌面通知
-        /// </summary>
         public bool EnableDesktopNotification =>
-            bool.TryParse(_configuration["AlarmSettings:EnableDesktopNotification"], out var value) && value;
+            bool.TryParse(_configuration["AlarmSettings:EnableDesktopNotification"], out var v) && v;
 
-        /// <summary>
-        /// 是否启用邮件通知
-        /// </summary>
         public bool EnableEmailAlarm =>
-            bool.TryParse(_configuration["AlarmSettings:EnableEmail"], out var value) && value;
+            bool.TryParse(_configuration["AlarmSettings:EnableEmail"], out var v) && v;
 
-        /// <summary>
-        /// 获取数据库连接字符串
-        /// </summary>
         public string DatabaseConnectionString =>
             _configuration["DatabaseSettings:ConnectionString"] ?? "Data Source=firedetection.db";
 
-        /// <summary>
-        /// 获取指定键的配置值
-        /// </summary>
-        /// <param name="key">配置键，支持冒号分隔的层级结构，如 "ModelSettings:ModelPath"</param>
-        /// <returns>配置值，如果不存在返回 null</returns>
-        public string GetValue(string key)
-        {
-            return _configuration[key] ?? string.Empty;
-        }
+        public string GetValue(string key) => _configuration[key] ?? string.Empty;
 
-        /// <summary>
-        /// 获取指定键的配置值，如果不存在则返回默认值
-        /// </summary>
-        /// <typeparam name="T">值类型</typeparam>
-        /// <param name="key">配置键</param>
-        /// <param name="defaultValue">默认值</param>
-        /// <returns>配置值</returns>
         public T GetValue<T>(string key, T defaultValue)
         {
             var value = _configuration[key];
-            if (string.IsNullOrEmpty(value))
-            {
-                return defaultValue;
-            }
-
+            if (string.IsNullOrEmpty(value)) return defaultValue;
             try
             {
-                // 尝试转换为目标类型
                 return (T)Convert.ChangeType(value, typeof(T));
             }
             catch
             {
                 return defaultValue;
             }
+        }
+
+        // ──────────────────────────────────────────────
+        // 写入方法：所有设置合并为一次原子写入
+        // ──────────────────────────────────────────────
+
+        public void UpdateModelSettings(string modelPath, float confidenceThreshold) { }
+        public void UpdateAlarmToggles(bool enableSound, bool enableDesktop, bool enableEmail, float alertThreshold) { }
+        public void UpdateEmailRecipients(string[] recipients) { }
+        public void UpdateEmailSettings(string smtpServer, int smtpPort, bool useSsl,
+            string username, string password, string fromAddress, string fromName) { }
+
+        /// <summary>
+        /// 将所有设置一次性写入 appsettings.json（原子写入，防止中途中断导致配置损坏）
+        /// </summary>
+        public void SaveAllSettings(
+            string modelPath, float confidenceThreshold,
+            bool enableSound, bool enableDesktop, bool enableEmail, float alertThreshold,
+            string[] emailRecipients,
+            string smtpServer, int smtpPort, bool useSsl,
+            string smtpUsername, string smtpPassword,
+            string fromAddress, string fromName)
+        {
+            lock (_fileLock)
+            {
+                var configPath = Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json");
+                var text = File.ReadAllText(configPath, _utf8NoBom);
+                var json = JsonNode.Parse(text)
+                    ?? throw new InvalidOperationException("appsettings.json 解析失败");
+
+                // 确保所有必需节点存在
+                EnsureSection(json, "ModelSettings");
+                EnsureSection(json, "AlarmSettings");
+                EnsureSection(json, "EmailSettings");
+
+                // 模型设置
+                json["ModelSettings"]!["ModelPath"] = modelPath;
+                json["ModelSettings"]!["ConfidenceThreshold"] = Math.Round(confidenceThreshold, 2);
+
+                // 报警开关
+                json["AlarmSettings"]!["EnableSound"] = enableSound;
+                json["AlarmSettings"]!["EnableDesktopNotification"] = enableDesktop;
+                json["AlarmSettings"]!["EnableEmail"] = enableEmail;
+                json["AlarmSettings"]!["AlertThreshold"] = Math.Round(alertThreshold, 2);
+
+                // 收件人列表
+                var recipientsArray = new JsonArray();
+                foreach (var r in emailRecipients)
+                    recipientsArray.Add(r);
+                json["AlarmSettings"]!["EmailRecipients"] = recipientsArray;
+
+                // SMTP 配置
+                json["EmailSettings"]!["SmtpServer"] = smtpServer;
+                json["EmailSettings"]!["SmtpPort"] = smtpPort;
+                json["EmailSettings"]!["UseSsl"] = useSsl;
+                json["EmailSettings"]!["Username"] = smtpUsername;
+                json["EmailSettings"]!["Password"] = smtpPassword;
+                json["EmailSettings"]!["FromAddress"] = fromAddress;
+                json["EmailSettings"]!["FromName"] = fromName;
+
+                // 原子写入：写临时文件 → 替换原文件（备份旧文件）
+                var tmpPath = configPath + ".tmp";
+                var bakPath = configPath + ".bak";
+                File.WriteAllText(tmpPath, json.ToJsonString(_jsonWriteOptions), _utf8NoBom);
+                File.Replace(tmpPath, configPath, bakPath);
+
+                (_configuration as IConfigurationRoot)?.Reload();
+            }
+        }
+
+        private static void EnsureSection(JsonNode root, string sectionName)
+        {
+            if (root[sectionName] == null)
+                root[sectionName] = new JsonObject();
         }
     }
 }

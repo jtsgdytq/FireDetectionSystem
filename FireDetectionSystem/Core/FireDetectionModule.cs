@@ -158,5 +158,25 @@ namespace FireDetectionSystem.Core
         /// 获取模型是否已加载
         /// </summary>
         public static bool IsLoaded => _isLoaded;
+
+        /// <summary>
+        /// 重新加载模型（用于 Settings 页面切换模型文件后生效）
+        /// 会释放旧预测器并重新初始化
+        /// </summary>
+        /// <param name="modelPath">新模型文件路径</param>
+        public static void Reinitialize(string modelPath)
+        {
+            lock (_lock)
+            {
+                // 释放旧预测器
+                if (_predictor is IDisposable disposable)
+                    disposable.Dispose();
+
+                _predictor = null;
+                _isLoaded = false;
+
+                Initialize(modelPath);
+            }
+        }
     }
 }
