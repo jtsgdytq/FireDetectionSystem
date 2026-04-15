@@ -1,4 +1,7 @@
-using Compunet.YoloSharp.Plotting;
+﻿using Compunet.YoloSharp.Plotting;
+using FireDetectionSystem.Core;
+using FireDetectionSystem.Models;
+using FireDetectionSystem.Services;
 using OpenCvSharp;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -18,16 +21,29 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using FireDetectionSystem.Core;
 
 namespace FireDetectionSystem.ViewModels
 {
     /// <summary>
     /// 摄像头检测页面 ViewModel。
-    /// 支持多路视频源并行检测，内部采用“解码 -> 推理 -> 渲染”三段式异步流水线。
+    /// 支持多路视频源并行检测，内部采用"解码 -> 推理 -> 渲染"三段式异步流水线。
     /// </summary>
     class CameraDetectionViewModel : BindableBase
     {
+        // ── 注入的服务 ───────────────────────────────────────────────────────
+        private readonly ILoggerService _logger;
+        private readonly IConfigurationService _configService;
+        private readonly IDatabaseService _dbService;
+        private readonly IAlarmService _alarmService;
+
+        // ── 连续帧状态机常量（与视频检测保持一致） ─────────────────────────
+        /// <summary>连续命中帧数达到此值才激活事件</summary>
+        private const int HIT_THRESHOLD_N = 5;
+        /// <summary>连续 miss 帧数达到此值才结束事件</summary>
+        private const int MISS_THRESHOLD_M = 3;
+        /// <summary>事件结束后冷却时间（毫秒），期间不开启新事件</summary>
+        private const long COOLDOWN_MS = 5000;
+
         /// <summary>
         /// 摄像头集合（每一项对应一路检测上下文）。
         /// </summary>
@@ -115,11 +131,118 @@ namespace FireDetectionSystem.ViewModels
         /// </summary>
         private int cameraIndex = 1;
 
+        // ── 报警处置 UI 状态 ─────────────────────────────────────────────────
+
         /// <summary>
-        /// 构造函数：初始化命令并订阅摄像头集合变化事件。
+        /// 待处置报警记录列表（HandleStatus = Pending 的摄像头报警）。
         /// </summary>
-        public CameraDetectionViewModel()
+        private ObservableCollection<DetectionRecord> _pendingAlarms = new();
+
+        /// <summary>
+        /// 待处置报警绑定集合。
+        /// </summary>
+        public ObservableCollection<DetectionRecord> PendingAlarms
         {
+            get => _pendingAlarms;
+            set { _pendingAlarms = value; RaisePropertyChanged(); }
+        }
+
+        /// <summary>
+        /// 当前选中的待处置报警记录。
+        /// </summary>
+        private DetectionRecord _selectedAlarm;
+
+        /// <summary>
+        /// 选中报警绑定属性。
+        /// </summary>
+        public DetectionRecord SelectedAlarm
+        {
+            get => _selectedAlarm;
+            set
+            {
+                _selectedAlarm = value;
+                RaisePropertyChanged();
+                // 选中变化时刷新处置按钮可用状态
+                ConfirmHandleCommand?.RaiseCanExecuteChanged();
+            }
+        }
+
+        /// <summary>
+        /// 处置状态 UI 显示文本 → DB 存储值的映射表。
+        /// </summary>
+        private static readonly Dictionary<string, string> HandleStatusMap = new()
+        {
+            { "已确认火灾", "Confirmed" },
+            { "误报/演习",  "FalseAlarm" },
+            { "已处置完毕", "Resolved" }
+        };
+
+        /// <summary>
+        /// 处置结果选项列表（显示中文，落库前通过 HandleStatusMap 转换为英文枚举值）。
+        /// </summary>
+        public List<string> HandleStatusOptions { get; } = new List<string>
+        {
+            "已确认火灾",
+            "误报/演习",
+            "已处置完毕"
+        };
+
+        /// <summary>
+        /// 当前选择的处置状态（ComboBox 绑定，中文显示值）。
+        /// </summary>
+        private string _selectedHandleStatus = "已确认火灾";
+
+        /// <summary>
+        /// 处置状态选择绑定属性。
+        /// </summary>
+        public string SelectedHandleStatus
+        {
+            get => _selectedHandleStatus;
+            set { _selectedHandleStatus = value; RaisePropertyChanged(); }
+        }
+
+        /// <summary>
+        /// 处置备注文本（TextBox 绑定）。
+        /// </summary>
+        private string _handleNotes = string.Empty;
+
+        /// <summary>
+        /// 处置备注绑定属性。
+        /// </summary>
+        public string HandleNotes
+        {
+            get => _handleNotes;
+            set { _handleNotes = value; RaisePropertyChanged(); }
+        }
+
+        /// <summary>
+        /// 确认处置命令：将选中报警更新为指定处置状态。
+        /// </summary>
+        public DelegateCommand ConfirmHandleCommand { get; private set; }
+
+        /// <summary>
+        /// 手动刷新待处置列表命令。
+        /// </summary>
+        public DelegateCommand RefreshPendingAlarmsCommand { get; private set; }
+
+        /// <summary>
+        /// 构造函数：通过 Prism DI 自动注入四个服务，初始化命令并订阅摄像头集合变化事件。
+        /// </summary>
+        public CameraDetectionViewModel(
+            ILoggerService logger,
+            IConfigurationService configService,
+            IDatabaseService dbService,
+            IAlarmService alarmService)
+        {
+            _logger = logger;
+            _configService = configService;
+            _dbService = dbService;
+            _alarmService = alarmService;
+
+            // 从配置读取默认阈值
+            ConfidenceThreshold = _configService.ConfidenceThreshold;
+            AlertThreshold = _configService.AlertThreshold;
+
             AddVideoSourceCommand = new DelegateCommand(AddVideoSource);
             RemoveSelectedCommand = new DelegateCommand(RemoveSelected, CanRemoveSelected)
                 .ObservesProperty(() => SelectedCamera);
@@ -128,7 +251,17 @@ namespace FireDetectionSystem.ViewModels
             StartSelectedCommand = new DelegateCommand(StartSelected, CanStartSelected)
                 .ObservesProperty(() => SelectedCamera);
 
+            // 处置相关命令
+            ConfirmHandleCommand = new DelegateCommand(
+                async () => await ConfirmHandleAsync(),
+                () => SelectedAlarm != null && !string.IsNullOrEmpty(SelectedHandleStatus));
+            RefreshPendingAlarmsCommand = new DelegateCommand(
+                async () => await RefreshPendingAlarmsAsync());
+
             cameras.CollectionChanged += OnCamerasChanged;
+
+            // 启动后立即加载待处置报警列表
+            _ = RefreshPendingAlarmsAsync();
         }
 
         /// <summary>
@@ -150,12 +283,16 @@ namespace FireDetectionSystem.ViewModels
 
         /// <summary>
         /// 单个摄像头属性变化回调。
-        /// 仅在状态变化时刷新运行数量统计。
+        /// 状态变化时同时刷新运行数量统计和"启动"命令可用状态。
         /// </summary>
         private void OnCameraItemChanged(object sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(CameraItem.Status))
+            {
                 RaisePropertyChanged(nameof(RunningCount));
+                // 摄像头状态变更（如 Running→Stopped）需刷新启动按钮可用状态
+                StartSelectedCommand?.RaiseCanExecuteChanged();
+            }
         }
 
         /// <summary>
@@ -196,7 +333,7 @@ namespace FireDetectionSystem.ViewModels
         }
 
         /// <summary>
-        /// 判断“移除摄像头”命令是否可执行。
+        /// 判断"移除摄像头"命令是否可执行。
         /// </summary>
         private bool CanRemoveSelected() => SelectedCamera != null;
 
@@ -213,7 +350,7 @@ namespace FireDetectionSystem.ViewModels
         }
 
         /// <summary>
-        /// 判断“暂停/继续”命令是否可执行。
+        /// 判断"暂停/继续"命令是否可执行。
         /// </summary>
         private bool CanToggleSelected() => SelectedCamera != null;
 
@@ -226,9 +363,11 @@ namespace FireDetectionSystem.ViewModels
         }
 
         /// <summary>
-        /// 判断“启动摄像头”命令是否可执行。
+        /// 判断"启动摄像头"命令是否可执行。
+        /// 排除已处于 Running 状态的摄像头，防止重复点击时新建通道被旧后台线程 TryComplete 关闭。
         /// </summary>
-        private bool CanStartSelected() => SelectedCamera != null;
+        private bool CanStartSelected() =>
+            SelectedCamera != null && SelectedCamera.Status != CameraStatus.Running;
 
         /// <summary>
         /// 启动指定摄像头：
@@ -251,22 +390,46 @@ namespace FireDetectionSystem.ViewModels
             camera.InferenceChannel = Channel.CreateBounded<CameraInferenceResult>(channelOpts);
 
             var token = camera.Cts.Token;
-            _ = Task.Run(() => CameraDecodeLoopAsync(camera, token), token);
-            _ = Task.Run(() => CameraInferenceLoopAsync(camera, token), token);
-            _ = Task.Run(() => CameraRenderLoopAsync(camera, token), token);
+
+            // 保存任务引用，StopCamera 等任务结束后再 Dispose CTS，防止 FlushCameraEventAsync 被中断
+            camera.DecodeTask    = Task.Run(() => CameraDecodeLoopAsync(camera, token), token);
+            camera.InferenceTask = Task.Run(() => CameraInferenceLoopAsync(camera, token), token);
+            camera.RenderTask    = Task.Run(() => CameraRenderLoopAsync(camera, token), token);
+
+            // 附加异常日志回调，防止后台任务异常被静默吞掉
+            _ = camera.DecodeTask.ContinueWith(
+                t => _logger.Error($"摄像头 [{camera.Name}] 解码任务异常: {t.Exception?.GetBaseException().Message}"),
+                TaskContinuationOptions.OnlyOnFaulted);
+            _ = camera.InferenceTask.ContinueWith(
+                t => _logger.Error($"摄像头 [{camera.Name}] 推理任务异常: {t.Exception?.GetBaseException().Message}"),
+                TaskContinuationOptions.OnlyOnFaulted);
+            _ = camera.RenderTask.ContinueWith(
+                t => _logger.Error($"摄像头 [{camera.Name}] 渲染任务异常: {t.Exception?.GetBaseException().Message}"),
+                TaskContinuationOptions.OnlyOnFaulted);
         }
 
         /// <summary>
-        /// 停止指定摄像头检测，释放 CTS 并关闭通道。
+        /// 停止指定摄像头检测，取消令牌并关闭通道。
+        /// 推理线程会在 finally 中自行强制结算 Active 事件后再退出。
+        /// CTS 的 Dispose 延迟到所有后台任务完成后执行，防止 FlushCameraEventAsync 被中断丢数据。
         /// </summary>
         private void StopCamera(CameraItem camera)
         {
             if (camera.Cts != null)
             {
-                camera.Cts.Cancel();
-                camera.Cts.Dispose();
+                var ctsToCancel = camera.Cts;
                 camera.Cts = null;
+                ctsToCancel.Cancel();
+
+                // 等所有后台任务结束后再 Dispose CTS，防止 FlushCameraEventAsync 被 ObjectDisposedException 中断
+                var tasks = new[] { camera.DecodeTask, camera.InferenceTask, camera.RenderTask }
+                    .Where(t => t != null).ToArray();
+                if (tasks.Length > 0)
+                    Task.WhenAll(tasks!).ContinueWith(_ => ctsToCancel.Dispose());
+                else
+                    ctsToCancel.Dispose();
             }
+
             // 关闭 Channel，确保后台线程正常退出
             camera.DecodeChannel?.Writer.TryComplete();
             camera.InferenceChannel?.Writer.TryComplete();
@@ -274,6 +437,7 @@ namespace FireDetectionSystem.ViewModels
             camera.StatusText = "已停止";
             camera.AlertMessage = "已停止";
             camera.IsAlert = false;
+            _logger.Info($"摄像头 [{camera.Name}] 已停止");
         }
 
         /// <summary>
@@ -310,12 +474,9 @@ namespace FireDetectionSystem.ViewModels
 
                     if (!capture.Read(frame) || frame.Empty())
                     {
-                        // 模拟摄像头：循环播放
+                        // 模拟摄像头：视频播完后循环重播
                         if (!capture.Set(VideoCaptureProperties.PosFrames, 0))
-                        {
-                            // 视频不支持循环播放，记录警告
-                            System.Diagnostics.Debug.WriteLine($"警告: 摄像头 {camera.Name} 不支持循环播放");
-                        }
+                            _logger.Warning($"摄像头 [{camera.Name}] 不支持循环播放，seek 失败");
                         frame.Dispose();
                         continue;
                     }
@@ -345,12 +506,24 @@ namespace FireDetectionSystem.ViewModels
         }
 
         /// <summary>
-        /// 推理循环：消费解码帧，执行 YOLO 检测并输出渲染结果。
+        /// 推理循环：消费解码帧，执行 YOLO 检测，驱动该摄像头的连续帧状态机，事件结束时落库并报警。
+        /// 状态机变量完全在本方法内维护，每路摄像头独立，无跨线程共享。
         /// </summary>
         private async Task CameraInferenceLoopAsync(CameraItem camera, CancellationToken token)
         {
             var fpsWindow = new Queue<long>(10);
             var sw = Stopwatch.StartNew();
+
+            // ── 连续帧状态机变量（每摄像头独立，仅在本推理线程访问）──────────
+            long  frameIndex        = 0;
+            int   consecutiveHits   = 0;
+            int   consecutiveMisses = 0;
+            bool  eventActive       = false;
+            float eventPeakConf     = 0f;  // 事件内峰值置信度，落库时作为 MaxConfidence
+            long  cooldownUntilMs   = 0;
+            // 捕获阈值快照（推理开始时固定，避免同一摄像头推理过程中阈值漂移）
+            float confidenceSnapshot = ConfidenceThreshold;
+            float alertSnapshot      = AlertThreshold;
 
             try
             {
@@ -359,20 +532,14 @@ namespace FireDetectionSystem.ViewModels
                     try
                     {
                         var t0 = sw.ElapsedMilliseconds;
-
-                        // 捕获阈值快照，避免多摄像头并发读取时的竞态条件
-                        var confidenceSnapshot = ConfidenceThreshold;
-                        var alertSnapshot = AlertThreshold;
+                        frameIndex++;
 
                         using var imageSharp = MatToImageSharp(frame);
                         var result = FireDetectionModule.Detect(imageSharp);
                         using var plotted = result.PlotImage(imageSharp) as SixLabors.ImageSharp.Image<Rgba32>;
 
-                        // 检查 PlotImage 是否返回 null
                         if (plotted == null)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"警告: 摄像头 {camera.Name} PlotImage 返回 null");
-                        }
+                            _logger.Warning($"摄像头 [{camera.Name}] PlotImage 返回 null，使用原始图像");
 
                         var elapsed = sw.ElapsedMilliseconds - t0;
                         fpsWindow.Enqueue(elapsed);
@@ -382,15 +549,61 @@ namespace FireDetectionSystem.ViewModels
 
                         var detBmp = ImageSharpToWriteableBitmap(plotted ?? imageSharp);
                         var infos = BuildDetectionInfos(result, confidenceSnapshot);
+                        var maxConf = infos.Count > 0 ? infos.Max(i => i.Confidence) : 0f;
 
-                        var ir = new CameraInferenceResult
+                        camera.InferenceChannel.Writer.TryWrite(new CameraInferenceResult
                         {
-                            DetectionImage = detBmp,
-                            Infos = infos,
-                            InferenceTimeMs = elapsed,
-                            Fps = fps
-                        };
-                        camera.InferenceChannel.Writer.TryWrite(ir);
+                            DetectionImage        = detBmp,
+                            Infos                 = infos,
+                            InferenceTimeMs       = elapsed,
+                            Fps                   = fps,
+                            // 将推理时使用的阈值快照一并传给渲染线程，保持 UI 预警与 DB 记录一致
+                            AlertThresholdSnapshot = alertSnapshot
+                        });
+
+                        // ── 连续帧状态机 ────────────────────────────────────
+                        var nowMs = sw.ElapsedMilliseconds;
+                        var isHit = infos.Count > 0 && maxConf >= alertSnapshot;
+
+                        if (isHit && nowMs > cooldownUntilMs)
+                        {
+                            consecutiveHits++;
+                            consecutiveMisses = 0;
+
+                            // 连续命中达到阈值 N，激活事件
+                            if (!eventActive && consecutiveHits >= HIT_THRESHOLD_N)
+                            {
+                                eventActive   = true;
+                                eventPeakConf = 0f;
+                                _logger.Info($"摄像头 [{camera.Name}] 事件激活：帧 {frameIndex}，阈值 {alertSnapshot:P1}");
+                            }
+
+                            // 事件进行中，持续追踪峰值置信度
+                            if (eventActive)
+                            {
+                                if (maxConf > eventPeakConf) eventPeakConf = maxConf;
+                            }
+                        }
+                        else if (eventActive)
+                        {
+                            consecutiveMisses++;
+                            if (consecutiveMisses >= MISS_THRESHOLD_M)
+                            {
+                                await FlushCameraEventAsync(camera, eventPeakConf);
+
+                                eventActive       = false;
+                                consecutiveHits   = 0;
+                                consecutiveMisses = 0;
+                                cooldownUntilMs   = nowMs + COOLDOWN_MS;
+                            }
+                        }
+                        else
+                        {
+                            // Idle 状态或冷却期内——无论命中与否都重置连续计数。
+                            // 关键：冷却期内命中帧也须重置，防止冷却结束后仅需 1 帧即触发误报
+                            consecutiveHits   = 0;
+                            consecutiveMisses = 0;
+                        }
                     }
                     finally
                     {
@@ -399,9 +612,60 @@ namespace FireDetectionSystem.ViewModels
                 }
             }
             catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                _logger.Error($"摄像头 [{camera.Name}] 推理异常: {ex.Message}", ex);
+            }
             finally
             {
+                // 摄像头停止时若有 Active 事件，强制结算落库
+                if (eventActive)
+                {
+                    await FlushCameraEventAsync(camera, eventPeakConf);
+                }
                 camera.InferenceChannel?.Writer.TryComplete();
+            }
+        }
+
+        /// <summary>
+        /// 结算并落库一次摄像头检测事件。
+        /// 写入 HandleStatus = "Pending" 表示待处置，并自动刷新待处置列表。
+        /// </summary>
+        /// <param name="camera">触发事件的摄像头上下文</param>
+        /// <param name="peakConf">事件期间检测到的峰值置信度</param>
+        private async Task FlushCameraEventAsync(CameraItem camera, float peakConf)
+        {
+            try
+            {
+                var eventId = Guid.NewGuid().ToString("N");
+
+                var record = new DetectionRecord
+                {
+                    DetectionTime    = DateTime.Now,
+                    SourceType       = "Camera",
+                    SourcePath       = camera.Name,
+                    IsFireDetected   = true,
+                    MaxConfidence    = peakConf,
+                    IsAlarmTriggered = true,
+                    UserId           = LoginViewModel.CurrentUser?.Id,
+                    EventId          = eventId,
+                    // 摄像头报警写入 Pending 状态，等待值班员确认处置
+                    HandleStatus     = "Pending"
+                };
+
+                var recordId = await _dbService.SaveDetectionRecordAsync(record);
+                record.Id = recordId;
+                _logger.Info($"摄像头 [{camera.Name}] 事件落库: ID={recordId}, EventId={eventId}, 峰值 {peakConf:P1}");
+
+                await _alarmService.TriggerAlarmAsync(record);
+
+                // 落库后在 UI 线程刷新待处置列表，让值班员第一时间看到新报警
+                await App.Current.Dispatcher.InvokeAsync(async () =>
+                    await RefreshPendingAlarmsAsync());
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"摄像头 [{camera.Name}] 事件落库失败: {ex.Message}", ex);
             }
         }
 
@@ -414,7 +678,11 @@ namespace FireDetectionSystem.ViewModels
             {
                 await foreach (var ir in camera.InferenceChannel.Reader.ReadAllAsync(token))
                 {
-                    await App.Current.Dispatcher.InvokeAsync(() =>
+                    // 应用关闭时 App.Current 可能变为 null，跳过已无效的 Dispatcher 调用
+                    var dispatcher = App.Current?.Dispatcher;
+                    if (dispatcher == null) break;
+
+                    await dispatcher.InvokeAsync(() =>
                     {
                         camera.DetectionFrame = ir.DetectionImage;
                         camera.DetectionInfos = new ObservableCollection<DetectionInfo>(ir.Infos);
@@ -424,7 +692,8 @@ namespace FireDetectionSystem.ViewModels
                         camera.DetectionFps = ir.Fps;
                         camera.LastUpdateTime = DateTime.Now.ToString("HH:mm:ss.fff");
 
-                        var isAlert = ir.Infos.Count > 0 && camera.MaxConfidence >= AlertThreshold;
+                        // 使用推理阶段的阈值快照，防止用户实时修改阈值导致 UI 预警与 DB 记录不一致
+                        var isAlert = ir.Infos.Count > 0 && camera.MaxConfidence >= ir.AlertThresholdSnapshot;
                         camera.IsAlert = isAlert;
                         camera.AlertMessage = isAlert
                             ? $"预警：检测到目标，最高置信度 {camera.MaxConfidence:P1}"
@@ -433,6 +702,57 @@ namespace FireDetectionSystem.ViewModels
                 }
             }
             catch (OperationCanceledException) { }
+        }
+
+        /// <summary>
+        /// 从数据库加载所有 Pending 状态的摄像头报警，刷新 PendingAlarms 集合。
+        /// 在 UI 线程调用（Dispatcher.InvokeAsync 内），或调用前已在 UI 线程。
+        /// </summary>
+        private async Task RefreshPendingAlarmsAsync()
+        {
+            try
+            {
+                var list = await _dbService.GetPendingCameraAlarmsAsync();
+                PendingAlarms = new ObservableCollection<DetectionRecord>(list);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"刷新待处置列表失败: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// 将当前选中的报警更新为用户选择的处置状态，并刷新待处置列表。
+        /// 由 ConfirmHandleCommand 驱动。
+        /// </summary>
+        private async Task ConfirmHandleAsync()
+        {
+            if (SelectedAlarm == null || string.IsNullOrEmpty(SelectedHandleStatus)) return;
+
+            try
+            {
+                var operatorId = LoginViewModel.CurrentUser?.Id;
+                // 将中文选项映射为 DB 存储的英文枚举值，匹配失败则直接使用原值作为兜底
+                var dbStatus = HandleStatusMap.TryGetValue(SelectedHandleStatus, out var mapped)
+                    ? mapped : SelectedHandleStatus;
+                await _dbService.UpdateHandleStatusAsync(
+                    SelectedAlarm.Id,
+                    dbStatus,
+                    operatorId,
+                    string.IsNullOrWhiteSpace(HandleNotes) ? null : HandleNotes);
+
+                _logger.Info($"处置报警 ID={SelectedAlarm.Id}，状态={SelectedHandleStatus}，操作人={operatorId}");
+
+                // 处置完成后清空备注，刷新列表
+                HandleNotes = string.Empty;
+                SelectedAlarm = null;
+                await RefreshPendingAlarmsAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"处置报警失败: {ex.Message}", ex);
+                MessageBox.Show($"处置失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         /// <summary>
@@ -473,6 +793,13 @@ namespace FireDetectionSystem.ViewModels
             /// 当前检测帧率（滑动窗口估算）。
             /// </summary>
             public double Fps { get; set; }
+
+            /// <summary>
+            /// 推理时使用的预警阈值快照。
+            /// 传递给渲染线程，确保 UI 预警状态与数据库记录判断逻辑一致，
+            /// 避免用户实时调整阈值时出现"UI 无警报但 DB 有告警"的矛盾。
+            /// </summary>
+            public float AlertThresholdSnapshot { get; set; }
         }
 
         /// <summary>
@@ -575,7 +902,7 @@ namespace FireDetectionSystem.ViewModels
 
         /// <summary>
         /// 统一枚举检测项：
-        /// 支持“结果自身可枚举”与“结果对象含集合属性”两种返回结构。
+        /// 支持"结果自身可枚举"与"结果对象含集合属性"两种返回结构。
         /// </summary>
         private static IEnumerable<object> EnumerateDetections(object result)
         {
@@ -940,6 +1267,21 @@ namespace FireDetectionSystem.ViewModels
             /// 推理结果通道（容量=1，优先保留最新结果）。
             /// </summary>
             public Channel<CameraInferenceResult>? InferenceChannel { get; set; }
+
+            /// <summary>
+            /// 解码后台任务引用，用于等待任务结束后再 Dispose CTS。
+            /// </summary>
+            public Task? DecodeTask { get; set; }
+
+            /// <summary>
+            /// 推理后台任务引用。
+            /// </summary>
+            public Task? InferenceTask { get; set; }
+
+            /// <summary>
+            /// 渲染后台任务引用。
+            /// </summary>
+            public Task? RenderTask { get; set; }
         }
 
         /// <summary>

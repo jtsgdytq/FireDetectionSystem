@@ -285,60 +285,16 @@ namespace FireDetectionSystem.ViewModels
         {
             try
             {
-                // 构建检测详情 JSON
-                // 使用反射访问 Detection 属性，因为不同版本的 YoloSharp 可能有不同的属性名
-                var detectionDetails = new System.Collections.Generic.List<object>();
-
-                foreach (var d in detections)
-                {
-                    var detectionType = d.GetType();
-
-                    // 尝试获取 Label 属性
-                    var labelProp = detectionType.GetProperty("Label");
-                    var labelValue = labelProp?.GetValue(d);
-                    var labelName = labelValue?.GetType().GetProperty("Name")?.GetValue(labelValue)?.ToString() ?? "Unknown";
-
-                    // 尝试获取 Bounds 或 BoundingBox 属性
-                    var boundsProp = detectionType.GetProperty("Bounds") ?? detectionType.GetProperty("BoundingBox");
-                    var boundsValue = boundsProp?.GetValue(d);
-                    var boundsStr = "-";
-
-                    if (boundsValue != null)
-                    {
-                        var boundsType = boundsValue.GetType();
-                        var x = boundsType.GetProperty("X")?.GetValue(boundsValue);
-                        var y = boundsType.GetProperty("Y")?.GetValue(boundsValue);
-                        var width = boundsType.GetProperty("Width")?.GetValue(boundsValue);
-                        var height = boundsType.GetProperty("Height")?.GetValue(boundsValue);
-
-                        if (x != null && y != null && width != null && height != null)
-                        {
-                            boundsStr = $"{x},{y} {width}x{height}";
-                        }
-                    }
-
-                    detectionDetails.Add(new
-                    {
-                        Label = labelName,
-                        Confidence = d.Confidence,
-                        Box = boundsStr
-                    });
-                }
-
-                var detailsJson = JsonSerializer.Serialize(detectionDetails);
-
-                // 创建检测记录
+                // 创建检测记录（图片检测只保存核心字段，无处置流程）
                 var record = new DetectionRecord
                 {
-                    DetectionTime = DateTime.Now,
-                    SourceType = "Image",
-                    SourcePath = ImagePath,
-                    IsFireDetected = DetectionCount > 0,
-                    DetectionCount = DetectionCount,
-                    MaxConfidence = MaxConfidence,
-                    DetectionDetails = detailsJson,
+                    DetectionTime    = DateTime.Now,
+                    SourceType       = "Image",
+                    SourcePath       = ImagePath,
+                    IsFireDetected   = DetectionCount > 0,
+                    MaxConfidence    = MaxConfidence,
                     IsAlarmTriggered = DetectionCount > 0 && MaxConfidence >= _configService.AlertThreshold,
-                    UserId = LoginViewModel.CurrentUser?.Id
+                    UserId           = LoginViewModel.CurrentUser?.Id
                 };
 
                 // 保存到数据库

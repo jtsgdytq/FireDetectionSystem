@@ -79,5 +79,20 @@ namespace FireDetectionSystem.Services
         /// 初始化数据库
         /// </summary>
         Task InitializeDatabaseAsync();
+
+        /// <summary>
+        /// 更新摄像头检测记录的处置状态
+        /// </summary>
+        /// <param name="recordId">检测记录 ID</param>
+        /// <param name="status">处置状态（Confirmed / FalseAlarm / Resolved）</param>
+        /// <param name="handledByUserId">处置人用户 ID</param>
+        /// <param name="notes">处置备注</param>
+        Task UpdateHandleStatusAsync(int recordId, string status, int? handledByUserId, string? notes);
+
+        /// <summary>
+        /// 获取所有待处置的摄像头报警记录（HandleStatus = Pending）
+        /// </summary>
+        /// <returns>待处置记录列表，按检测时间倒序排列</returns>
+        Task<List<DetectionRecord>> GetPendingCameraAlarmsAsync();
     }
 }

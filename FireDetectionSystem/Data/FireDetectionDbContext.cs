@@ -60,14 +60,34 @@ namespace FireDetectionSystem.Data
             // 配置检测记录表
             modelBuilder.Entity<DetectionRecord>(entity =>
             {
-                // 检测时间索引（用于按时间查询）
+                // 检测时间索引（按时间范围查询）
                 entity.HasIndex(e => e.DetectionTime);
 
-                // 来源类型索引
+                // 来源类型索引（区分 Image / Video / Camera）
                 entity.HasIndex(e => e.SourceType);
 
-                // 用户ID索引
+                // 操作用户索引
                 entity.HasIndex(e => e.UserId);
+
+                // 来源类型 + 时间复合索引（历史列表分类查询）
+                entity.HasIndex(e => new { e.SourceType, e.DetectionTime })
+                    .HasDatabaseName("IX_DetectionRecords_SourceType_Time");
+
+                // EventId 索引（聚合同一连续事件的记录）
+                entity.HasIndex(e => e.EventId)
+                    .HasDatabaseName("IX_DetectionRecords_EventId");
+
+                // IsAlarmTriggered 索引（快速筛选已报警记录）
+                entity.HasIndex(e => e.IsAlarmTriggered)
+                    .HasDatabaseName("IX_DetectionRecords_IsAlarmTriggered");
+
+                // HandleStatus 索引（快速查询待处置的摄像头报警）
+                entity.HasIndex(e => e.HandleStatus)
+                    .HasDatabaseName("IX_DetectionRecords_HandleStatus");
+
+                // 处置人索引（按处置人查询历史处置记录）
+                entity.HasIndex(e => e.HandledByUserId)
+                    .HasDatabaseName("IX_DetectionRecords_HandledByUserId");
             });
 
             // 配置报警日志表
@@ -87,33 +107,9 @@ namespace FireDetectionSystem.Data
                 entity.HasIndex(e => e.Key).IsUnique();
             });
 
-            // 初始化默认数据
-            SeedData(modelBuilder);
-        }
-
-        /// <summary>
-        /// 初始化默认数据
-        /// 创建默认管理员账户和基本配置
-        /// </summary>
-        /// <param name="modelBuilder">模型构建器</param>
-        private void SeedData(ModelBuilder modelBuilder)
-        {
-            // 创建默认管理员账户
-            // 用户名: admin, 密码: admin123
-            modelBuilder.Entity<User>().HasData(
-                new User
-                {
-                    Id = 1,
-                    Username = "admin",
-                    // BCrypt 加密后的 "admin123"
-                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("admin123"),
-                    FullName = "系统管理员",
-                    Email = "admin@firedetection.com",
-                    Role = "Admin",
-                    IsActive = true,
-                    CreatedAt = DateTime.Now
-                }
-            );
+            // 注意：默认管理员账户通过 DatabaseService.InitializeDatabaseAsync() 命令式播种，
+            // 不在此处使用 HasData，原因：BCrypt.HashPassword 每次调用生成不同 salt，
+            // 导致 HasData 幂等性被破坏，重启后可能覆盖用户已修改的密码。
         }
     }
 }

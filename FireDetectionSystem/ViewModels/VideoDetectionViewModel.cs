@@ -1,4 +1,7 @@
 ﻿using Compunet.YoloSharp.Plotting;
+using FireDetectionSystem.Core;
+using FireDetectionSystem.Models;
+using FireDetectionSystem.Services;
 using OpenCvSharp;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -16,22 +19,34 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using FireDetectionSystem.Core;
 
 namespace FireDetectionSystem.ViewModels
 {
     /// <summary>
     /// 视频检测页面 ViewModel。
-    /// 采用“解码 -> 推理 -> 渲染”三段式异步流水线：
+    /// 采用"解码 -> 推理 -> 渲染"三段式异步流水线：
     /// 1) 解码线程负责读取视频帧并更新原始画面；
-    /// 2) 推理线程负责 YOLO 检测与结果后处理；
+    /// 2) 推理线程负责 YOLO 检测与结果后处理，内含连续帧事件状态机；
     /// 3) 渲染线程负责将检测结果同步到 UI。
     /// </summary>
     class VideoDetectionViewModel : BindableBase
     {
+        // ── 注入的服务 ───────────────────────────────────────────────────────
+        private readonly ILoggerService _logger;
+        private readonly IConfigurationService _configService;
+        private readonly IDatabaseService _dbService;
+        private readonly IAlarmService _alarmService;
+
+        // ── 连续帧状态机常量 ─────────────────────────────────────────────────
+        /// <summary>连续命中帧数达到此值才激活事件</summary>
+        private const int HIT_THRESHOLD_N = 5;
+        /// <summary>连续 miss 帧数达到此值才结束事件</summary>
+        private const int MISS_THRESHOLD_M = 3;
+        /// <summary>事件结束后冷却时间（毫秒），期间不开启新事件</summary>
+        private const long COOLDOWN_MS = 5000;
         /// <summary>
         /// 当前选中的视频文件路径。
-        /// 变更后会主动刷新“开始检测”按钮可用状态。
+        /// 变更后会主动刷新"开始检测"按钮可用状态。
         /// </summary>
         private string videoPath;
 
@@ -242,8 +257,23 @@ namespace FireDetectionSystem.ViewModels
         private bool _isDetecting;
 
         /// <summary>
+        /// 解码后台任务引用，用于等待任务结束后再 Dispose CTS，防止 FlushVideoEventAsync 被中断。
+        /// </summary>
+        private Task _decodeTask;
+
+        /// <summary>
+        /// 推理后台任务引用。
+        /// </summary>
+        private Task _inferenceTask;
+
+        /// <summary>
+        /// 渲染后台任务引用。
+        /// </summary>
+        private Task _renderTask;
+
+        /// <summary>
         /// 检测运行状态绑定属性。
-        /// 变更时会刷新“开始/停止”命令的可用状态。
+        /// 变更时会刷新"开始/停止"命令的可用状态。
         /// </summary>
         public bool IsDetecting
         {
@@ -259,10 +289,26 @@ namespace FireDetectionSystem.ViewModels
         }
 
         /// <summary>
-        /// 构造函数：初始化命令并绑定可执行条件。
+        /// 构造函数：通过 Prism DI 自动注入四个服务。
         /// </summary>
-        public VideoDetectionViewModel()
+        /// <param name="logger">日志服务</param>
+        /// <param name="configService">配置服务</param>
+        /// <param name="dbService">数据库服务</param>
+        /// <param name="alarmService">报警服务</param>
+        public VideoDetectionViewModel(
+            ILoggerService logger,
+            IConfigurationService configService,
+            IDatabaseService dbService,
+            IAlarmService alarmService)
         {
+            _logger = logger;
+            _configService = configService;
+            _dbService = dbService;
+            _alarmService = alarmService;
+
+            // 从配置读取默认置信度阈值
+            Confidence = _configService.ConfidenceThreshold;
+
             SelectVideoPathCommnad = new DelegateCommand(SelectVideoPath);
             DetectionVideoCommand = new DelegateCommand(DetectionVideo, CanStartDetection)
                 .ObservesProperty(() => VideoPath);
@@ -287,7 +333,7 @@ namespace FireDetectionSystem.ViewModels
         }
 
         /// <summary>
-        /// 判断“开始检测”命令是否可执行。
+        /// 判断"开始检测"命令是否可执行。
         /// 仅当：未在检测中 + 视频路径有效时返回 true。
         /// </summary>
         private bool CanStartDetection()
@@ -300,7 +346,7 @@ namespace FireDetectionSystem.ViewModels
         
 
         /// <summary>
-        /// 判断“停止检测”命令是否可执行。
+        /// 判断"停止检测"命令是否可执行。
         /// </summary>
         private bool CanStopDetection()
         {
@@ -310,18 +356,31 @@ namespace FireDetectionSystem.ViewModels
 
         /// <summary>
         /// 停止检测流程：
-        /// 1) 取消后台任务；
-        /// 2) 释放取消令牌；
+        /// 1) 取消后台任务（推理线程自行在 finally 中强制结算 Active 事件）；
+        /// 2) 等待所有任务结束后再 Dispose CTS，防止 FlushVideoEventAsync 被 ObjectDisposedException 中断；
         /// 3) 复位 UI 状态。
         /// </summary>
         private void StopDetection()
         {
-            _cts?.Cancel();
-            _cts?.Dispose();
+            var ctsToCancel = _cts;
+            if (ctsToCancel == null) return; // 防止重复调用（视频结束 + 用户点击停止竞态）
+
             _cts = null;
+            ctsToCancel.Cancel();
+
             IsDetecting = false;
             IsPaused = false;
             PauseButtonText = "暂停";
+            _logger?.Info("视频检测已停止");
+
+            // 等所有后台任务结束（含 finally 块的 FlushVideoEventAsync）后再释放 CTS，
+            // 防止 DB 写入被 ObjectDisposedException 中断导致事件落库丢失
+            var tasks = new[] { _decodeTask, _inferenceTask, _renderTask }
+                .Where(t => t != null).ToArray();
+            if (tasks.Length > 0)
+                Task.WhenAll(tasks).ContinueWith(_ => ctsToCancel.Dispose());
+            else
+                ctsToCancel.Dispose();
         }
 
         /// <summary>
@@ -335,6 +394,8 @@ namespace FireDetectionSystem.ViewModels
             if (!CanStartDetection())
                 return;
 
+            _logger.Info($"开始视频检测: {VideoPath}");
+
             _cts = new CancellationTokenSource();
             IsDetecting = true;
             IsPaused = false;
@@ -345,17 +406,34 @@ namespace FireDetectionSystem.ViewModels
             _inferenceChannel = Channel.CreateBounded<InferenceResult>(channelOpts);
 
             var token = _cts.Token;
-            _ = Task.Run(() => DecodeLoopAsync(token), token);
-            _ = Task.Run(() => InferenceLoopAsync(token), token);
-            _ = Task.Run(() => RenderLoopAsync(token), token);
 
+            // 捕获局部通道引用并传入各循环，防止 StopDetection 后立即重启导致新旧通道引用混乱
+            var decCh = _decodeChannel;
+            var infCh = _inferenceChannel;
+
+            _decodeTask    = Task.Run(() => DecodeLoopAsync(token, decCh), token);
+            _inferenceTask = Task.Run(() => InferenceLoopAsync(token, decCh, infCh), token);
+            _renderTask    = Task.Run(() => RenderLoopAsync(token, infCh), token);
+
+            // 附加异常日志回调，防止后台任务异常被静默吞掉导致画面卡住无感知
+            _ = _decodeTask.ContinueWith(
+                t => _logger.Error($"解码任务异常: {t.Exception?.GetBaseException().Message}"),
+                TaskContinuationOptions.OnlyOnFaulted);
+            _ = _inferenceTask.ContinueWith(
+                t => _logger.Error($"推理任务异常: {t.Exception?.GetBaseException().Message}"),
+                TaskContinuationOptions.OnlyOnFaulted);
+            _ = _renderTask.ContinueWith(
+                t => _logger.Error($"渲染任务异常: {t.Exception?.GetBaseException().Message}"),
+                TaskContinuationOptions.OnlyOnFaulted);
         }
 
         /// <summary>
         /// 视频解码循环。
         /// 职责：按原始帧率读取视频帧，更新左侧原图，并将帧发送到推理通道。
         /// </summary>
-        private async Task DecodeLoopAsync(CancellationToken token)
+        /// <param name="token">取消令牌</param>
+        /// <param name="decodeChannel">解码帧通道（由调用方传入，防止重启时通道引用混乱）</param>
+        private async Task DecodeLoopAsync(CancellationToken token, Channel<Mat> decodeChannel)
         {
             try
             {
@@ -394,10 +472,10 @@ namespace FireDetectionSystem.ViewModels
                     await App.Current.Dispatcher.InvokeAsync(() => OriginalImage = originalBmp);
 
                     // 将帧写入推理通道；若拥塞则丢弃当前帧，避免积压导致延迟不断增加。
-                    if (!_decodeChannel.Writer.TryWrite(frame))
+                    if (!decodeChannel.Writer.TryWrite(frame))
                         frame.Dispose();
 
-                    // 按源视频 FPS 进行节奏控制，避免无意义“超速解码”占用 CPU。
+                    // 按源视频 FPS 进行节奏控制，避免无意义"超速解码"占用 CPU。
                     var elapsed = (int)(sw.ElapsedMilliseconds - frameStart);
                     var sleep = frameIntervalMs - elapsed;
                     if (sleep > 0) await Task.Delay(sleep, token);
@@ -414,38 +492,50 @@ namespace FireDetectionSystem.ViewModels
             }
             finally
             {
-                _decodeChannel?.Writer.TryComplete();
+                decodeChannel?.Writer.TryComplete();
             }
         }
 
         /// <summary>
         /// 推理循环。
-        /// 职责：消费解码帧、执行 YOLO 检测、绘制检测框、构建检测信息并输出到渲染通道。
+        /// 职责：消费解码帧、执行 YOLO 检测、驱动连续帧状态机、在事件结束时落库并报警。
+        /// 状态机变量完全在本方法内维护，不共享，无并发问题。
         /// </summary>
-        private async Task InferenceLoopAsync(CancellationToken token)
+        /// <param name="token">取消令牌</param>
+        /// <param name="decodeChannel">解码帧通道（由调用方传入，防止通道引用混乱）</param>
+        /// <param name="inferenceChannel">推理结果通道</param>
+        private async Task InferenceLoopAsync(CancellationToken token,
+            Channel<Mat> decodeChannel, Channel<InferenceResult> inferenceChannel)
         {
             var fpsWindow = new Queue<long>(10);
             var sw = Stopwatch.StartNew();
 
+            // ── 连续帧状态机变量 ─────────────────────────────────────────────
+            long  frameIndex        = 0;   // 当前帧序号（从 0 开始单调递增）
+            int   consecutiveHits   = 0;   // 当前连续命中帧数
+            int   consecutiveMisses = 0;   // 当前连续 miss 帧数
+            bool  eventActive       = false;
+            float eventPeakConf     = 0f;  // 事件内峰值置信度，落库时作为 MaxConfidence
+            long  cooldownUntilMs   = 0;   // 冷却截止时间戳（ms），期间不开启新事件
+            // 捕获报警阈值快照，防止推理过程中用户修改阈值导致同一事件使用不同阈值
+            float alertThreshold    = _configService.AlertThreshold;
+
             try
             {
-                await foreach (var frame in _decodeChannel.Reader.ReadAllAsync(token))
+                await foreach (var frame in decodeChannel.Reader.ReadAllAsync(token))
                 {
                     try
                     {
                         var t0 = sw.ElapsedMilliseconds;
+                        frameIndex++;
 
                         using var imageSharp = MatToImageSharp(frame);
                         var result = FireDetectionModule.Detect(imageSharp);
                         using var plotted = result.PlotImage(imageSharp) as SixLabors.ImageSharp.Image<Rgba32>;
 
-                        // 兼容兜底：绘图失败时回退原图，避免本帧直接丢失。
                         if (plotted == null)
-                        {
-                            System.Diagnostics.Debug.WriteLine("警告: PlotImage 返回 null，使用原始图像");
-                        }
+                            _logger.Warning("推理帧绘图返回 null，使用原始图像代替");
 
-                        // 计算推理滑动窗口 FPS，减小单帧抖动。
                         var elapsed = sw.ElapsedMilliseconds - t0;
                         fpsWindow.Enqueue(elapsed);
                         if (fpsWindow.Count > 10) fpsWindow.Dequeue();
@@ -454,17 +544,63 @@ namespace FireDetectionSystem.ViewModels
 
                         var detBmp = ImageSharpToWriteableBitmap(plotted ?? imageSharp);
                         var infos = BuildDetectionInfos(result, Confidence);
+                        var maxConf = infos.Count > 0 ? infos.Max(i => i.Confidence) : 0f;
 
-                        // 打包渲染所需数据并送入渲染通道。
-                        var ir = new InferenceResult
+                        // 打包渲染数据并送入渲染通道
+                        inferenceChannel.Writer.TryWrite(new InferenceResult
                         {
                             DetectionImage = detBmp,
                             Infos = infos,
                             InferenceTimeMs = elapsed,
                             Fps = fps
-                        };
+                        });
 
-                        _inferenceChannel.Writer.TryWrite(ir);
+                        // ── 连续帧状态机 ────────────────────────────────────
+                        var nowMs = sw.ElapsedMilliseconds;
+                        var isHit = infos.Count > 0 && maxConf >= alertThreshold;
+
+                        if (isHit && nowMs > cooldownUntilMs)
+                        {
+                            consecutiveHits++;
+                            consecutiveMisses = 0;
+
+                            // 连续命中达到阈值 N，激活事件
+                            if (!eventActive && consecutiveHits >= HIT_THRESHOLD_N)
+                            {
+                                eventActive   = true;
+                                eventPeakConf = 0f;
+                                _logger.Info($"视频事件激活：帧 {frameIndex}，阈值 {alertThreshold:P1}");
+                            }
+
+                            // 事件进行中，持续追踪峰值置信度
+                            if (eventActive)
+                            {
+                                if (maxConf > eventPeakConf) eventPeakConf = maxConf;
+                            }
+                        }
+                        else if (eventActive)
+                        {
+                            // miss 帧：累计容忍计数
+                            consecutiveMisses++;
+                            if (consecutiveMisses >= MISS_THRESHOLD_M)
+                            {
+                                // 连续 miss 达到 M，事件自然结束，落库
+                                await FlushVideoEventAsync(eventPeakConf);
+
+                                eventActive       = false;
+                                consecutiveHits   = 0;
+                                consecutiveMisses = 0;
+                                cooldownUntilMs   = nowMs + COOLDOWN_MS;
+                            }
+                        }
+                        else
+                        {
+                            // Idle 状态或冷却期内——无论命中与否都重置连续计数。
+                            // 关键：冷却期内的命中帧也须重置 consecutiveHits，
+                            // 否则冷却结束后仅需 1 帧命中即可触发事件（绕过了 N 帧阈值），导致误报。
+                            consecutiveHits   = 0;
+                            consecutiveMisses = 0;
+                        }
                     }
                     finally
                     {
@@ -473,9 +609,54 @@ namespace FireDetectionSystem.ViewModels
                 }
             }
             catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                _logger.Error($"推理循环异常: {ex.Message}", ex);
+            }
             finally
             {
-                _inferenceChannel?.Writer.TryComplete();
+                // 视频结束或用户停止时，若有 Active 事件则强制结算落库，避免丢记录
+                if (eventActive)
+                {
+                    await FlushVideoEventAsync(eventPeakConf);
+                }
+                inferenceChannel?.Writer.TryComplete();
+            }
+        }
+
+        /// <summary>
+        /// 结算并落库一次视频检测事件。
+        /// 保存核心字段（来源、峰值置信度、EventId），并触发报警。
+        /// </summary>
+        /// <param name="peakConf">事件期间检测到的峰值置信度</param>
+        private async Task FlushVideoEventAsync(float peakConf)
+        {
+            try
+            {
+                // 使用完整 32 字符 GUID（无连字符），DetectionRecord.EventId MaxLength(64) 可容纳
+                var eventId = Guid.NewGuid().ToString("N");
+
+                var record = new DetectionRecord
+                {
+                    DetectionTime    = DateTime.Now,
+                    SourceType       = "Video",
+                    SourcePath       = VideoPath,
+                    IsFireDetected   = true,
+                    MaxConfidence    = peakConf,
+                    IsAlarmTriggered = true,
+                    UserId           = LoginViewModel.CurrentUser?.Id,
+                    EventId          = eventId
+                };
+
+                var recordId = await _dbService.SaveDetectionRecordAsync(record);
+                record.Id = recordId;
+                _logger.Info($"视频事件落库: ID={recordId}, EventId={eventId}, 峰值 {peakConf:P1}");
+
+                await _alarmService.TriggerAlarmAsync(record);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"视频事件落库失败: {ex.Message}", ex);
             }
         }
 
@@ -483,13 +664,19 @@ namespace FireDetectionSystem.ViewModels
         /// 渲染循环。
         /// 职责：将推理结果同步到 UI 绑定属性，避免在推理线程直接操作界面对象。
         /// </summary>
-        private async Task RenderLoopAsync(CancellationToken token)
+        /// <param name="token">取消令牌</param>
+        /// <param name="inferenceChannel">推理结果通道（由调用方传入，防止通道引用混乱）</param>
+        private async Task RenderLoopAsync(CancellationToken token, Channel<InferenceResult> inferenceChannel)
         {
             try
             {
-                await foreach (var ir in _inferenceChannel.Reader.ReadAllAsync(token))
+                await foreach (var ir in inferenceChannel.Reader.ReadAllAsync(token))
                 {
-                    await App.Current.Dispatcher.InvokeAsync(() =>
+                    // 应用关闭时 App.Current 可能变为 null，跳过已无效的 Dispatcher 调用
+                    var dispatcher = App.Current?.Dispatcher;
+                    if (dispatcher == null) break;
+
+                    await dispatcher.InvokeAsync(() =>
                     {
                         DetetionSoure = ir.DetectionImage;
                         DetectionInfos = new ObservableCollection<DetectionInfo>(ir.Infos);
@@ -631,7 +818,7 @@ namespace FireDetectionSystem.ViewModels
 
         /// <summary>
         /// 枚举检测项的统一入口。
-        /// 同时兼容“结果本身可枚举”与“结果对象包含 Detections 属性”两种结构。
+        /// 同时兼容"结果本身可枚举"与"结果对象包含 Detections 属性"两种结构。
         /// </summary>
         private static IEnumerable<object> EnumerateDetections(object result)
         {
