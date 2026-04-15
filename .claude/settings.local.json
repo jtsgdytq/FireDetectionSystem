@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build:*)",
+      "Bash(mkdir -p \"D:\\\\网页下载\\\\YOLO-FireDetectionSystem-main\\\\YOLO-FireDetectionSystem-main\\\\.claude/agents\")",
+      "Bash(mkdir -p \"D:\\\\网页下载\\\\YOLO-FireDetectionSystem-main\\\\YOLO-FireDetectionSystem-main\\\\.claude/commands/project\")",
+      "Bash(mkdir -p \"D:\\\\网页下载\\\\YOLO-FireDetectionSystem-main\\\\YOLO-FireDetectionSystem-main\\\\.claude/skills/fix-error\")"
+    ]
+  }
+}

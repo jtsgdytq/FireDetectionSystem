@@ -156,7 +156,7 @@
                 <Button
                     Width="80"
                     Command="{Binding ToggleSelectedPauseCommand}"
-                    Content="{Binding SelectedCamera.PauseButtonText}" />
+                    Content="{Binding SelectedCamera.PauseButtonText, FallbackValue=暂停}" />
             </StackPanel>
 
             <!-- 状态与预警 -->
@@ -323,6 +323,16 @@
                         <TextBlock Foreground="#B8C5D6">
                             <Run Text="更新时间: " />
                             <Run Text="{Binding LastUpdateTime}" />
+                        </TextBlock>
+                        <TextBlock Foreground="#B8C5D6">
+                            <Run Text="推理耗时: " />
+                            <Run Text="{Binding InferenceTimeMs, StringFormat={}{0:F0}}" />
+                            <Run Text=" ms" />
+                        </TextBlock>
+                        <TextBlock Foreground="#B8C5D6">
+                            <Run Text="检测帧率: " />
+                            <Run Text="{Binding DetectionFps, StringFormat={}{0:F1}}" />
+                            <Run Text=" FPS" />
                         </TextBlock>
                     </StackPanel>
                 </Border>
