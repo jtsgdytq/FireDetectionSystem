@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 
 namespace FireDetectionSystem.Services
 {
@@ -16,8 +17,9 @@ namespace FireDetectionSystem.Services
         private readonly IConfiguration _configuration;
         private readonly object _fileLock = new object();
 
-        private static readonly JsonSerializerOptions _jsonWriteOptions =
-            new JsonSerializerOptions { WriteIndented = true };
+        // 使用 JsonWriterOptions 替代 JsonSerializerOptions，避免 .NET 8 要求 TypeInfoResolver 的问题
+        private static readonly JsonWriterOptions _jsonWriterOptions =
+            new JsonWriterOptions { Indented = true };
 
         private static readonly Encoding _utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
@@ -127,9 +129,14 @@ namespace FireDetectionSystem.Services
                 json["EmailSettings"]!["FromName"] = fromName;
 
                 // 原子写入：写临时文件 → 替换原文件（备份旧文件）
+                // 使用 Utf8JsonWriter + FileStream 直接写入，避免 JsonSerializerOptions 的 TypeInfoResolver 限制
                 var tmpPath = configPath + ".tmp";
                 var bakPath = configPath + ".bak";
-                File.WriteAllText(tmpPath, json.ToJsonString(_jsonWriteOptions), _utf8NoBom);
+                using (var fs = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var writer = new Utf8JsonWriter(fs, _jsonWriterOptions))
+                {
+                    json.WriteTo(writer);
+                }
                 File.Replace(tmpPath, configPath, bakPath);
 
                 (_configuration as IConfigurationRoot)?.Reload();

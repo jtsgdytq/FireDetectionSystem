@@ -1,0 +1,184 @@
+<Window
+    x:Class="FireDetectionSystem.Views.AddCameraDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="#16191f"
+    Height="370"
+    ResizeMode="NoResize"
+    Title="添加摄像头"
+    Width="460"
+    WindowStartupLocation="CenterOwner">
+    <Grid Margin="18,14,18,14">
+        <Grid.RowDefinitions>
+            <!--  类型选择区  -->
+            <RowDefinition Height="Auto" />
+            <!--  分隔线  -->
+            <RowDefinition Height="Auto" />
+            <!--  动态内容区（各类型面板）  -->
+            <RowDefinition Height="Auto" />
+            <!--  摄像头名称  -->
+            <RowDefinition Height="Auto" />
+            <!--  弹性间距  -->
+            <RowDefinition Height="*" />
+            <!--  操作按钮  -->
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!--  ①  摄像头类型选择  -->
+        <StackPanel Margin="0,0,0,10">
+            <TextBlock
+                Foreground="#B8C5D6"
+                Margin="0,0,0,8"
+                Text="摄像头类型" />
+            <StackPanel Orientation="Horizontal">
+                <RadioButton
+                    x:Name="RbSimulated"
+                    Checked="OnTypeChanged"
+                    Content="模拟摄像头"
+                    Foreground="White"
+                    IsChecked="True"
+                    Margin="0,0,24,0" />
+                <RadioButton
+                    x:Name="RbLocal"
+                    Checked="OnTypeChanged"
+                    Content="本地摄像头"
+                    Foreground="White"
+                    Margin="0,0,24,0" />
+                <RadioButton
+                    x:Name="RbRtsp"
+                    Checked="OnTypeChanged"
+                    Content="远程摄像头（RTSP）"
+                    Foreground="White" />
+            </StackPanel>
+        </StackPanel>
+
+        <!--  分隔线  -->
+        <Separator
+            Background="#2a2f3e"
+            Grid.Row="1"
+            Margin="0,0,0,14" />
+
+        <!--  ②  动态内容区  -->
+        <Grid Grid.Row="2" MinHeight="90">
+
+            <!--  模拟摄像头面板  -->
+            <StackPanel x:Name="PanelSimulated">
+                <TextBlock
+                    Foreground="#B8C5D6"
+                    Margin="0,0,0,6"
+                    Text="视频文件路径" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox
+                        x:Name="TxtFilePath"
+                        Background="#1f2431"
+                        BorderBrush="#2a2f3e"
+                        Foreground="#556677"
+                        IsReadOnly="True"
+                        Padding="6,5"
+                        Text="（点击浏览按钮选择视频文件）" />
+                    <Button
+                        Grid.Column="1"
+                        Click="OnBrowseFile"
+                        Content="浏览…"
+                        Margin="8,0,0,0"
+                        Width="72" />
+                </Grid>
+                <TextBlock
+                    Foreground="#556677"
+                    FontSize="11"
+                    Margin="0,5,0,0"
+                    Text="支持格式：mp4 / avi / mov / mkv，播放完毕后自动循环" />
+            </StackPanel>
+
+            <!--  本地摄像头面板  -->
+            <StackPanel x:Name="PanelLocal" Visibility="Collapsed">
+                <DockPanel Margin="0,0,0,6">
+                    <TextBlock
+                        Foreground="#B8C5D6"
+                        Text="摄像头设备"
+                        VerticalAlignment="Center" />
+                    <Button
+                        Click="OnRefreshDevices"
+                        Content="刷新设备列表"
+                        DockPanel.Dock="Right"
+                        FontSize="11"
+                        Height="24"
+                        Width="90" />
+                </DockPanel>
+                <ComboBox
+                    x:Name="CmbDevices"
+                    Background="#1f2431"
+                    BorderBrush="#2a2f3e"
+                    Foreground="White" />
+                <TextBlock
+                    x:Name="TxtEnumerating"
+                    FontSize="11"
+                    Foreground="#5A9BD5"
+                    Margin="0,6,0,0"
+                    Text="正在检测摄像头设备，请稍候…"
+                    Visibility="Collapsed" />
+                <TextBlock
+                    x:Name="TxtNoDevice"
+                    FontSize="11"
+                    Foreground="#cc6644"
+                    Margin="0,6,0,0"
+                    Text="未检测到摄像头设备，请确认摄像头已连接并安装驱动"
+                    Visibility="Collapsed" />
+            </StackPanel>
+
+            <!--  远程摄像头面板  -->
+            <StackPanel x:Name="PanelRtsp" Visibility="Collapsed">
+                <TextBlock
+                    Foreground="#B8C5D6"
+                    Margin="0,0,0,6"
+                    Text="连接地址（RTSP / HTTP）" />
+                <TextBox
+                    x:Name="TxtRtspUrl"
+                    Background="#1f2431"
+                    BorderBrush="#2a2f3e"
+                    Foreground="White"
+                    Padding="6,5"
+                    Text="rtsp://" />
+                <TextBlock
+                    Foreground="#556677"
+                    FontSize="11"
+                    Margin="0,5,0,0"
+                    Text="示例：rtsp://admin:pass@192.168.1.100:554/stream" />
+            </StackPanel>
+        </Grid>
+
+        <!--  ③  摄像头名称（可选）  -->
+        <StackPanel Grid.Row="3" Margin="0,16,0,0">
+            <TextBlock
+                Foreground="#B8C5D6"
+                Margin="0,0,0,6"
+                Text="摄像头名称（留空则自动命名）" />
+            <TextBox
+                x:Name="TxtName"
+                Background="#1f2431"
+                BorderBrush="#2a2f3e"
+                Foreground="White"
+                Padding="6,5" />
+        </StackPanel>
+
+        <!--  ④  操作按钮  -->
+        <StackPanel
+            Grid.Row="5"
+            HorizontalAlignment="Right"
+            Orientation="Horizontal">
+            <Button
+                Click="OnCancel"
+                Content="取消"
+                Margin="0,0,10,0"
+                Width="80" />
+            <Button
+                Click="OnConfirm"
+                Content="确认添加"
+                Width="90" />
+        </StackPanel>
+    </Grid>
+</Window>

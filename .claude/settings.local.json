@@ -5,7 +5,12 @@
       "Bash(mkdir -p \"D:\\\\网页下载\\\\YOLO-FireDetectionSystem-main\\\\YOLO-FireDetectionSystem-main\\\\.claude/agents\")",
       "Bash(mkdir -p \"D:\\\\网页下载\\\\YOLO-FireDetectionSystem-main\\\\YOLO-FireDetectionSystem-main\\\\.claude/commands/project\")",
       "Bash(mkdir -p \"D:\\\\网页下载\\\\YOLO-FireDetectionSystem-main\\\\YOLO-FireDetectionSystem-main\\\\.claude/skills/fix-error\")",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash(git -C /Users/u09o5m rev-parse --show-toplevel)",
+      "Read(//c/Users/**)",
+      "Read(//d/Users/**)",
+      "Bash(gh pr *)",
+      "Bash(xargs grep *)"
     ]
   }
 }

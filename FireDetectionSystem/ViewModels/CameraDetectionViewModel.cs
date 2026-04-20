@@ -2,6 +2,7 @@
 using FireDetectionSystem.Core;
 using FireDetectionSystem.Models;
 using FireDetectionSystem.Services;
+using FireDetectionSystem.Views;
 using OpenCvSharp;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -28,15 +29,15 @@ namespace FireDetectionSystem.ViewModels
     /// 摄像头检测页面 ViewModel。
     /// 支持多路视频源并行检测，内部采用"解码 -> 推理 -> 渲染"三段式异步流水线。
     /// </summary>
-    class CameraDetectionViewModel : BindableBase
+    public class CameraDetectionViewModel : BindableBase
     {
-        // ── 注入的服务 ───────────────────────────────────────────────────────
+        // ── 注入的服务 
         private readonly ILoggerService _logger;
         private readonly IConfigurationService _configService;
         private readonly IDatabaseService _dbService;
         private readonly IAlarmService _alarmService;
 
-        // ── 连续帧状态机常量（与视频检测保持一致） ─────────────────────────
+        // ── 连续帧状态机常量
         /// <summary>连续命中帧数达到此值才激活事件</summary>
         private const int HIT_THRESHOLD_N = 5;
         /// <summary>连续 miss 帧数达到此值才结束事件</summary>
@@ -107,9 +108,9 @@ namespace FireDetectionSystem.ViewModels
         public int RunningCount => Cameras.Count(c => c.Status == CameraStatus.Running);
 
         /// <summary>
-        /// 添加视频源命令。
+        /// 打开"添加摄像头"统一对话框命令，支持模拟文件、本地设备和远程 RTSP 三种类型。
         /// </summary>
-        public DelegateCommand AddVideoSourceCommand { get; }
+        public DelegateCommand AddCameraCommand { get; }
 
         /// <summary>
         /// 移除选中摄像头命令。
@@ -243,7 +244,7 @@ namespace FireDetectionSystem.ViewModels
             ConfidenceThreshold = _configService.ConfidenceThreshold;
             AlertThreshold = _configService.AlertThreshold;
 
-            AddVideoSourceCommand = new DelegateCommand(AddVideoSource);
+            AddCameraCommand = new DelegateCommand(async () => await AddCameraAsync());
             RemoveSelectedCommand = new DelegateCommand(RemoveSelected, CanRemoveSelected)
                 .ObservesProperty(() => SelectedCamera);
             ToggleSelectedPauseCommand = new DelegateCommand(ToggleSelectedPause, CanToggleSelected)
@@ -296,29 +297,38 @@ namespace FireDetectionSystem.ViewModels
         }
 
         /// <summary>
-        /// 通过文件选择器添加一个视频源，并自动启动检测。
+        /// 打开统一添加摄像头对话框，根据用户选择的类型创建对应 CameraItem 并自动启动检测。
+        /// 对话框内部负责枚举本地设备（含超时保护），ViewModel 只需处理返回值。
         /// </summary>
-        private void AddVideoSource()
+        private async Task AddCameraAsync()
         {
-            var dlg = new Microsoft.Win32.OpenFileDialog
+            var dialog = new AddCameraDialog(cameraIndex)
             {
-                Filter = "视频文件|*.mp4;*.avi;*.mov;*.mkv|所有文件|*.*",
-                Title = "选择视频文件作为摄像头源"
+                Owner = Application.Current.MainWindow
             };
-            if (dlg.ShowDialog() != true) return;
+            if (dialog.ShowDialog() != true) return;
+
+            // 根据来源类型决定 SourcePath 的显示内容（本地摄像头用描述性文本，其余用实际路径）
+            var sourcePath = dialog.SourceType == CameraSourceType.LocalDevice
+                ? $"[本地] 设备 {dialog.DeviceIndex}"
+                : (dialog.SourceType == CameraSourceType.RtspStream ? dialog.RtspUrl : dialog.FilePath);
 
             var camera = new CameraItem
             {
-                Name = $"模拟摄像头 {cameraIndex++}",
-                SourcePath = dlg.FileName,
-                Status = CameraStatus.Stopped,
-                StatusText = "未启动",
+                Name            = dialog.CameraName,
+                SourcePath      = sourcePath,
+                SourceType      = dialog.SourceType,
+                DeviceIndex     = dialog.DeviceIndex,
+                Status          = CameraStatus.Stopped,
+                StatusText      = "未启动",
                 PauseButtonText = "暂停",
-                LastUpdateTime = "-"
+                LastUpdateTime  = "-"
             };
+            cameraIndex++;
             Cameras.Add(camera);
             SelectedCamera = camera;
-            StartCamera(camera);
+            // 添加完成后在 UI 线程启动，避免阻塞对话框关闭动画
+            await Application.Current.Dispatcher.InvokeAsync(() => StartCamera(camera));
         }
 
         /// <summary>
@@ -441,57 +451,86 @@ namespace FireDetectionSystem.ViewModels
         }
 
         /// <summary>
-        /// 解码循环：按源帧率读取视频帧，更新原始画面并投递到推理通道。
+        /// 解码循环：根据来源类型（模拟文件/本地摄像头/RTSP）选择打开方式，
+        /// 按帧率读取帧，更新原始画面并投递到推理通道。
         /// </summary>
         private async Task CameraDecodeLoopAsync(CameraItem camera, CancellationToken token)
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(camera.SourcePath) || !File.Exists(camera.SourcePath))
+                // 仅模拟文件需要验证路径存在
+                if (camera.SourceType == CameraSourceType.SimulatedFile
+                    && (string.IsNullOrWhiteSpace(camera.SourcePath) || !File.Exists(camera.SourcePath)))
                 {
                     UpdateCameraStatus(camera, CameraStatus.Error, "源文件不存在");
                     return;
                 }
 
-                using var capture = new VideoCapture(camera.SourcePath);
-                if (!capture.IsOpened())
+                // 根据来源类型选择 VideoCapture 打开方式
+                var capture = camera.SourceType switch
                 {
-                    UpdateCameraStatus(camera, CameraStatus.Error, "打开失败");
-                    return;
-                }
+                    // 本地设备：传入整数索引，优先使用 DirectShow 后端（Windows 兼容性最佳）
+                    CameraSourceType.LocalDevice => new VideoCapture(camera.DeviceIndex, VideoCaptureAPIs.DSHOW),
+                    // RTSP 网络流：传入 URL 字符串，使用 FFmpeg 后端
+                    CameraSourceType.RtspStream  => new VideoCapture(camera.SourcePath, VideoCaptureAPIs.FFMPEG),
+                    // 模拟文件：原有逻辑，让 OpenCV 自动选择后端
+                    _                            => new VideoCapture(camera.SourcePath)
+                };
 
-                var fps = capture.Fps;
-                if (fps <= 0) fps = 25;
-                var frameIntervalMs = (int)(1000.0 / fps);
-                var sw = Stopwatch.StartNew();
-
-                while (!token.IsCancellationRequested)
+                using (capture)
                 {
-                    if (camera.IsPaused) { await Task.Delay(50, token); continue; }
-
-                    var t0 = sw.ElapsedMilliseconds;
-                    var frame = new Mat();
-
-                    if (!capture.Read(frame) || frame.Empty())
+                    if (!capture.IsOpened())
                     {
-                        // 模拟摄像头：视频播完后循环重播
-                        if (!capture.Set(VideoCaptureProperties.PosFrames, 0))
-                            _logger.Warning($"摄像头 [{camera.Name}] 不支持循环播放，seek 失败");
-                        frame.Dispose();
-                        continue;
+                        var errMsg = camera.SourceType == CameraSourceType.LocalDevice
+                            ? $"无法打开本地摄像头 (设备 {camera.DeviceIndex})，请检查是否被其他程序占用"
+                            : $"无法打开视频源：{camera.SourcePath}";
+                        UpdateCameraStatus(camera, CameraStatus.Error, errMsg);
+                        return;
                     }
 
-                    // 立即更新原始画面
-                    var originalBmp = MatToWriteableBitmap(frame);
-                    await App.Current.Dispatcher.InvokeAsync(() => camera.OriginalFrame = originalBmp);
+                    var fps = capture.Fps;
+                    // 实际摄像头可能返回 0 或异常大值，统一兜底为 30 FPS
+                    if (fps <= 0 || fps > 120) fps = 30;
+                    var frameIntervalMs = (int)(1000.0 / fps);
+                    var sw = Stopwatch.StartNew();
 
-                    // 发给推理线程
-                    if (!camera.DecodeChannel.Writer.TryWrite(frame))
-                        frame.Dispose();
+                    while (!token.IsCancellationRequested)
+                    {
+                        if (camera.IsPaused) { await Task.Delay(50, token); continue; }
 
-                    var elapsed = (int)(sw.ElapsedMilliseconds - t0);
-                    var sleep = frameIntervalMs - elapsed;
-                    if (sleep > 0) await Task.Delay(sleep, token);
+                        var t0 = sw.ElapsedMilliseconds;
+                        var frame = new Mat();
+
+                        if (!capture.Read(frame) || frame.Empty())
+                        {
+                            frame.Dispose();
+                            if (camera.SourceType == CameraSourceType.SimulatedFile)
+                            {
+                                // 模拟文件：视频播完后循环重播
+                                if (!capture.Set(VideoCaptureProperties.PosFrames, 0))
+                                    _logger.Warning($"摄像头 [{camera.Name}] 不支持循环播放，seek 失败");
+                            }
+                            else
+                            {
+                                // 实际摄像头/RTSP：读帧失败等待后重试，不退出循环
+                                _logger.Warning($"摄像头 [{camera.Name}] 读帧失败，等待 500ms 后重试...");
+                                await Task.Delay(500, token);
+                            }
+                            continue;
+                        }
+
+                        // 立即更新原始画面
+                        var originalBmp = MatToWriteableBitmap(frame);
+                        await App.Current.Dispatcher.InvokeAsync(() => camera.OriginalFrame = originalBmp);
+
+                        // 发给推理线程
+                        if (!camera.DecodeChannel.Writer.TryWrite(frame))
+                            frame.Dispose();
+
+                        var elapsed = (int)(sw.ElapsedMilliseconds - t0);
+                        var sleep = frameIntervalMs - elapsed;
+                        if (sleep > 0) await Task.Delay(sleep, token);
+                    }
                 }
             }
             catch (OperationCanceledException) { }
@@ -772,7 +811,7 @@ namespace FireDetectionSystem.ViewModels
         /// <summary>
         /// 推理阶段传递给渲染阶段的中间数据对象。
         /// </summary>
-        internal sealed class CameraInferenceResult
+        public sealed class CameraInferenceResult
         {
             /// <summary>
             /// 已绘制检测框的图像。
@@ -1109,9 +1148,29 @@ namespace FireDetectionSystem.ViewModels
             private string sourcePath;
 
             /// <summary>
-            /// 视频源路径绑定属性。
+            /// 视频源路径绑定属性（模拟文件为文件路径，本地摄像头为显示用字符串）。
             /// </summary>
             public string SourcePath { get => sourcePath; set => SetProperty(ref sourcePath, value); }
+
+            /// <summary>
+            /// 摄像头来源类型（模拟文件/本地设备/RTSP 流），创建后不变。
+            /// </summary>
+            public CameraSourceType SourceType { get; set; } = CameraSourceType.SimulatedFile;
+
+            /// <summary>
+            /// 本地摄像头设备索引（SourceType=LocalDevice 时有效，对应系统摄像头序号）。
+            /// </summary>
+            public int DeviceIndex { get; set; } = 0;
+
+            /// <summary>
+            /// 来源类型简短标签，用于 UI 列表直观区分不同来源。
+            /// </summary>
+            public string SourceTypeLabel => SourceType switch
+            {
+                CameraSourceType.LocalDevice => "[本地]",
+                CameraSourceType.RtspStream  => "[RTSP]",
+                _                            => "[模拟]"
+            };
 
             /// <summary>
             /// 摄像头状态值。
@@ -1288,5 +1347,18 @@ namespace FireDetectionSystem.ViewModels
         /// 摄像头运行状态枚举。
         /// </summary>
         public enum CameraStatus { Stopped, Running, Paused, Error }
+
+        /// <summary>
+        /// 摄像头视频源来源类型枚举。
+        /// </summary>
+        public enum CameraSourceType
+        {
+            /// <summary>模拟摄像头：视频文件循环播放</summary>
+            SimulatedFile,
+            /// <summary>本地 USB/内置摄像头：通过设备索引打开</summary>
+            LocalDevice,
+            /// <summary>远程 RTSP/HTTP 网络流</summary>
+            RtspStream
+        }
     }
 }

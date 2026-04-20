@@ -58,7 +58,6 @@ namespace FireDetectionSystem.ViewModels
         private readonly IConfigurationService _configService;
         private readonly IUserService _userService;
         private readonly ILoggerService _logger;
-
         #region 模型设置属性
 
         private string _modelPath = string.Empty;
@@ -255,6 +254,7 @@ namespace FireDetectionSystem.ViewModels
             SelectAllRecipientsCommand = new DelegateCommand(SelectAllRecipients);
             UnselectAllRecipientsCommand = new DelegateCommand(UnselectAllRecipients);
             SaveSettingsCommand = new DelegateCommand(async () => await SaveSettingsAsync());
+            SendeEmailTestCommand = new DelegateCommand(async () => await SendeEmailTestCommandExecuteAsync());
         }
 
         /// <summary>
@@ -426,5 +426,39 @@ namespace FireDetectionSystem.ViewModels
         public void OnNavigatedFrom(NavigationContext navigationContext) { }
 
         #endregion
+        
+        
+        public DelegateCommand SendeEmailTestCommand { get; }
+
+        private async Task SendeEmailTestCommandExecuteAsync()
+        {
+            var recipients = _configService.Configuration
+                .GetSection("AlarmSettings:EmailRecipients")
+                .Get<string[]>() ?? Array.Empty<string>();
+
+            if (recipients.Length == 0)
+            {
+                MessageBox.Show(
+                    "未配置收件人，请先在设置页面选择收件人并保存。",
+                    "测试邮件", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                var service = new AlarmService(_configService, _logger);
+                await service.SendEmailAsync(recipients, "火灾检测系统 - 测试邮件", "这是一封测试邮件，说明邮件报警功能配置正确。");
+                MessageBox.Show(
+                    $"测试邮件已发送至：\n{string.Join("\n", recipients)}",
+                    "发送成功", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"测试邮件发送失败: {ex.Message}", ex);
+                MessageBox.Show(
+                    $"测试邮件发送失败：\n{ex.Message}\n\n请检查 SMTP 配置是否正确。",
+                    "发送失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
     }
 }

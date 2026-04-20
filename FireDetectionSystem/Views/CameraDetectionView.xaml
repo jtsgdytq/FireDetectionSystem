@@ -33,15 +33,17 @@
                 </TextBlock>
 
                 <StackPanel Orientation="Horizontal">
+                    <!--  统一添加摄像头入口：弹出对话框选择来源类型（模拟/本地/RTSP）  -->
                     <Button
-                        Command="{Binding AddVideoSourceCommand}"
-                        Content="添加视频源"
-                        Margin="0,0,8,0"
+                        Command="{Binding AddCameraCommand}"
+                        Content="+ 添加摄像头"
+                        Margin="0,0,6,0"
+                        ToolTip="添加本地、模拟或远程 RTSP 摄像头"
                         Width="120" />
                     <Button
                         Command="{Binding RemoveSelectedCommand}"
-                        Content="移除"
-                        Width="70" />
+                        Content="移除摄像头"
+                        Width="100" />
                 </StackPanel>
 
                 <ListBox
@@ -65,11 +67,20 @@
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
-                                    <TextBlock
-                                        FontSize="14"
-                                        FontWeight="SemiBold"
-                                        Foreground="White"
-                                        Text="{Binding Name}" />
+                                    <!--  名称行：来源类型标签 + 摄像头名称  -->
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock
+                                            FontSize="11"
+                                            Foreground="#5A9BD5"
+                                            Margin="0,0,5,0"
+                                            Text="{Binding SourceTypeLabel}"
+                                            VerticalAlignment="Center" />
+                                        <TextBlock
+                                            FontSize="14"
+                                            FontWeight="SemiBold"
+                                            Foreground="White"
+                                            Text="{Binding Name}" />
+                                    </StackPanel>
                                     <TextBlock
                                         Foreground="#B8C5D6"
                                         Grid.Row="1"

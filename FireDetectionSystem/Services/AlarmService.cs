@@ -7,6 +7,7 @@ using System.Windows;
 using FireDetectionSystem.Data;
 using FireDetectionSystem.Models;
 using MailKit.Net.Smtp;
+using MailKit.Security;
 using MimeKit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -200,7 +201,7 @@ namespace FireDetectionSystem.Services
         {
             try
             {
-                var smtpServer = _configService.GetValue("EmailSettings:SmtpServer", "");
+                var smtpServerRaw = _configService.GetValue("EmailSettings:SmtpServer", "").Trim();
                 var smtpPort = _configService.GetValue("EmailSettings:SmtpPort", 587);
                 var useSsl = _configService.GetValue("EmailSettings:UseSsl", true);
                 var username = _configService.GetValue("EmailSettings:Username", "");
@@ -209,10 +210,17 @@ namespace FireDetectionSystem.Services
                 var fromName = _configService.GetValue("EmailSettings:FromName", "火灾检测系统");
 
                 // 验证配置
-                if (string.IsNullOrEmpty(smtpServer) || string.IsNullOrEmpty(username) ||
+                if (string.IsNullOrEmpty(smtpServerRaw) || string.IsNullOrEmpty(username) ||
                     string.IsNullOrEmpty(password) || string.IsNullOrEmpty(fromAddress))
                 {
                     _logger.Warning("邮件配置不完整，无法发送邮件");
+                    return;
+                }
+
+                var (smtpServer, normalizedPort) = NormalizeSmtpEndpoint(smtpServerRaw, smtpPort);
+                if (Uri.CheckHostName(smtpServer) == UriHostNameType.Unknown)
+                {
+                    _logger.Warning($"SMTP 服务器地址无效：{smtpServerRaw}");
                     return;
                 }
 
@@ -230,7 +238,18 @@ namespace FireDetectionSystem.Services
 
                 // 发送邮件
                 using var client = new SmtpClient();
-                await client.ConnectAsync(smtpServer, smtpPort, useSsl);
+                var socketOptions = ResolveSocketOptions(useSsl, normalizedPort);
+
+                try
+                {
+                    await client.ConnectAsync(smtpServer, normalizedPort, socketOptions);
+                }
+                catch (SslHandshakeException) when (socketOptions == SecureSocketOptions.SslOnConnect && normalizedPort == 587)
+                {
+                    // 某些配置会把 587 + UseSsl=true 误当成 SSL 直连，回退到 STARTTLS 重试一次
+                    await client.ConnectAsync(smtpServer, normalizedPort, SecureSocketOptions.StartTls);
+                }
+
                 await client.AuthenticateAsync(username, password);
                 await client.SendAsync(message);
                 await client.DisconnectAsync(true);
@@ -242,6 +261,40 @@ namespace FireDetectionSystem.Services
                 _logger.Error($"发送邮件失败: {ex.Message}", ex);
                 throw;
             }
+        }
+
+        private static (string Host, int Port) NormalizeSmtpEndpoint(string smtpServerRaw, int fallbackPort)
+        {
+            var value = smtpServerRaw.Trim();
+
+            if (Uri.TryCreate(value, UriKind.Absolute, out var uri) && !string.IsNullOrWhiteSpace(uri.Host))
+            {
+                var port = uri.IsDefaultPort ? fallbackPort : uri.Port;
+                return (uri.Host, port);
+            }
+
+            // 支持 host:port 的简写输入
+            var firstColon = value.IndexOf(':');
+            var lastColon = value.LastIndexOf(':');
+            if (firstColon > 0 && firstColon == lastColon && lastColon < value.Length - 1)
+            {
+                var host = value[..lastColon].Trim();
+                if (int.TryParse(value[(lastColon + 1)..], out var parsedPort))
+                    return (host, parsedPort);
+            }
+
+            return (value, fallbackPort);
+        }
+
+        private static SecureSocketOptions ResolveSocketOptions(bool useSsl, int port)
+        {
+            if (port == 465)
+                return SecureSocketOptions.SslOnConnect;
+
+            if (port == 587)
+                return useSsl ? SecureSocketOptions.StartTls : SecureSocketOptions.StartTlsWhenAvailable;
+
+            return useSsl ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTlsWhenAvailable;
         }
 
         /// <summary>
