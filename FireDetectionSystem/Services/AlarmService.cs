@@ -118,11 +118,11 @@ namespace FireDetectionSystem.Services
                             .GetSection("AlarmSettings:EmailRecipients")
                             .Get<string[]>() ?? Array.Empty<string>();
 
-                        
-                        
                         if (recipients.Length > 0)
                         {
-                            await SendEmailAsync(recipients, "火灾检测报警", message);
+                            // 构建详细的邮件正文
+                            var emailBody = BuildEmailBody(detectionRecord, alarmLevel);
+                            await SendEmailAsync(recipients, $"[{alarmLevel}级] 火灾检测报警 - {detectionRecord.DetectionTime:yyyy-MM-dd HH:mm:ss}", emailBody);
                             await SaveAlarmLogAsync(detectionRecord.Id, "Email", alarmLevel, message, true,
                                 string.Join(", ", recipients));
                         }
@@ -295,6 +295,44 @@ namespace FireDetectionSystem.Services
                 return useSsl ? SecureSocketOptions.StartTls : SecureSocketOptions.StartTlsWhenAvailable;
 
             return useSsl ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTlsWhenAvailable;
+        }
+
+        /// <summary>
+        /// 构建详细的报警邮件正文
+        /// </summary>
+        /// <param name="record">检测记录</param>
+        /// <param name="alarmLevel">报警级别</param>
+        /// <returns>格式化的邮件正文</returns>
+        private string BuildEmailBody(DetectionRecord record, string alarmLevel)
+        {
+            var sourceTypeText = record.SourceType switch
+            {
+                "Image" => "图片检测",
+                "Video" => "视频检测",
+                "Camera" => "摄像头实时检测",
+                _ => record.SourceType
+            };
+
+            var body = $"""
+                ════════════════════════════════════════
+                         火灾检测系统 - 报警通知
+                ════════════════════════════════════════
+
+                【报警级别】{alarmLevel}（{(alarmLevel == "High" ? "高危" : alarmLevel == "Medium" ? "中等" : "低级")}）
+                【检测时间】{record.DetectionTime:yyyy-MM-dd HH:mm:ss}
+                【检测方式】{sourceTypeText}
+                【检测来源】{record.SourcePath ?? "未知"}
+                【最高置信度】{record.MaxConfidence:P1}
+                【报警阈值】{_configService.AlertThreshold:P1}
+
+                ────────────────────────────────────────
+                请相关人员及时核实现场情况，如确认火情请立即启动应急预案。
+
+                此邮件由火灾检测系统自动发送，请勿直接回复。
+                发送时间：{DateTime.Now:yyyy-MM-dd HH:mm:ss}
+                """;
+
+            return body;
         }
 
         /// <summary>

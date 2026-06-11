@@ -10,7 +10,11 @@
       "Read(//c/Users/**)",
       "Read(//d/Users/**)",
       "Bash(gh pr *)",
-      "Bash(xargs grep *)"
+      "Bash(xargs grep *)",
+      "Bash(python -c \"import docx; print\\('python-docx available'\\)\")",
+      "Bash(pip install *)",
+      "Bash(pip3 install *)",
+      "Bash(python write_chapter4.py)"
     ]
   }
 }
